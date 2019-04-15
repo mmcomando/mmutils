@@ -1,0 +1,15 @@
+/thread_pool
+/trace.json
+dub.userprefs
+dub.selections.json
+/mutils-test-lib
+.dub
+/.vscode
+docs.json
+__dummy.html
+perf.data
+perf.data.old
+*.o
+*.a
+*.so
+*.obj

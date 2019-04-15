@@ -1,0 +1,10 @@
+{
+	"name": "mmutils",
+	"authors": [
+		"Michał Masiukiewicz"
+	],
+	"description": "Miminal marvelous utilities",
+	"copyright": "Copyright © 2019, Michał Masiukiewicz",
+	"license": "proprietary",
+	"target": "executable"
+}
