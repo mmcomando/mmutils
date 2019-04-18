@@ -5,6 +5,7 @@ import core.stdc.stdio;
 import core.stdc.stdlib : free, malloc;
 import core.stdc.string : memcpy;
 
+import std.stdio;
 import std.algorithm : map;
 
 // version = MM_NO_LOGS; // Disable log creation
@@ -35,22 +36,35 @@ version (D_BetterC)
 //////////////////////////////////////////////
 //////////////////// Alloc ///////////////////
 //////////////////////////////////////////////
-
-T* makeVar(T)(T init = T.init)
+T* makeVar(T)(T init)
 {
 	T* el = cast(T*) malloc(T.sizeof);
 	memcpy(el, &init, T.sizeof);
 	return el;
+	// return Mallocator.instance.make!T(init);
 }
 
-T[] makeVarArray(T)(size_t num, T init = T.init)
+import std.experimental.allocator;
+import std.experimental.allocator.mallocator;
+
+T* makeVar(T)()
 {
-	T* ptr = cast(T*) malloc(num * T.sizeof);
+	T init;
+	T* el = cast(T*) malloc(T.sizeof);
+	memcpy(el, &init, T.sizeof);
+	// return Mallocator.instance.make!T(init);
+	return el;
+}
+
+T[] makeVarArray(T)(int num, T init = T.init)
+{
+	T* ptr = cast(T*) malloc(num * (T.sizeof + T.sizeof % T.alignof));
 	T[] arr = ptr[0 .. num];
 	foreach (ref el; arr)
 	{
 		memcpy(&el, &init, T.sizeof);
 	}
+	// return Mallocator.instance.makeArray!T(num);
 	return arr;
 }
 
@@ -59,6 +73,10 @@ void disposeVar(T)(T* var)
 	free(var);
 }
 
+void disposeArray(T)(T[] var)
+{
+	free(var.ptr);
+}
 //////////////////////////////////////////////
 //////////////////// Timer ///////////////////
 //////////////////////////////////////////////
@@ -419,44 +437,52 @@ else
 
 private enum gMaxThreadsNum = 128;
 
-version (MM_NO_LOGS)
-	private enum gLogsCacheNum = 0;
-else
-	private enum gLogsCacheNum = 1024;
+alias JobDelegate = void delegate(ThreadData*, JobData*);
 
-alias JobDelegate = void delegate(JobData*);
-
+// Structure to store job start and end time
 struct JobLog
 {
-	string name;
-	ulong time;
-	ulong duration;
-	bool complete;
+	string name; /// Name of job
+	ulong time; /// Time started (us)
+	ulong duration; /// Took time (us)
+	bool complete; /// If job is currently executing 
 }
 
+/// Structure containing job data
+/// JobData memory is allocated by user
+/// JobData lifetime is managed by user
+/// JobData has to live as long as it's group or end of jobs execution
+/// JobData fields can be changed in del delegate and job can be added to thread pool again, to continue execution (call same function again or another if del was changed)
 struct JobData
 {
-	JobDelegate del;
-	string name;
-	private JobsGroup* group;
+	JobDelegate del; /// Delegate to execute
+	string name; /// Name of job
+	private JobsGroup* group; /// Group to which this job belongs
 }
 
-alias MTQueue = LowLockQueue!(JobData*, bool);
+/// Multithreated FiFi queue
+private alias MTQueue = LowLockQueue!(JobData*, bool);
 
+/// Structure responsible for thread in thread pool
+/// Stores jobs to be executed by this thread (jobs can be stolen by another thread)
+/// Stores cache for logs
 struct ThreadData
 {
-	align(64) MTQueue jobsToDo;
-	align(64) Semaphore semaphore;
-	align(64) Thread thread;
-	JobLog[] logs;
-	int lastLogIndex = -1;
-	ThreadPool* threadPool;
+public:
+	ThreadPool* threadPool; /// Pool this thread belongs to
+	int threadId; /// Thread id. Valid only for this thread pool
+private:
+	align(64) MTQueue jobsToDo; /// Queue of jobs
+	align(64) Semaphore semaphore; /// Semaphore to wake/sleep this thread
+	align(64) Thread thread; /// Systemn thread handle
+	JobLog[] logs; /// Logs cache
+	int lastLogIndex = -1; /// Last created log index
 
-	int threadId;
-	bool end;
-	bool acceptJobs;
-	bool externalThread;
+	bool end; /// Check if thread has to exit. Thread will exit only if end is true and jobsToDo is empty
+	bool acceptJobs; /// Check if thread should accept new jobs, If false thread won't steal jobs from other threads and will sleep longer if queue js empty
+	bool externalThread; /// Thread not allocated by thread pool
 
+	/// Thread entry point
 	void threadStartFunc()
 	{
 		end = false;
@@ -464,19 +490,37 @@ struct ThreadData
 	}
 }
 
+/// Thread Pool
+/// Manages bounch of threads to execute given jobs as quickly as possible
+/// There are no priorities beetween jobs. Jobs added to queues in same order as they are in slices, but due to job stealing and uneven speed of execution beetween threads jobs execution order is unspecified.
+/// Number of threads executing jobs can be dynamically changed in any time. Threads removed from execution will work until the end of the program but shouldn't accept new jobs.
 struct ThreadPool
 {
+	alias FlushLogsDelegaste = void delegate(ThreadData* threadData, JobLog[] logs); /// Type of delegate to flush logs
+	FlushLogsDelegaste onFlushLogs; /// User custom delegate to flush logs, if overriden defaultFlushLogs will be used. Can be sset after initialize() call
+	int logsCacheNum; /// Number of log cache entries. Should be set before setThreadsNum is called
 private:
-	ThreadData*[gMaxThreadsNum] threadsData; // array
-	align(64) shared int threadsNum;
-	align(64) shared bool threadsDataLock; // Any modification of threadsData array (change in size or pointer modification) had to be locked
-	align(64) int threadSelector;
-	align(64) FILE* logFile;
+	ThreadData*[gMaxThreadsNum] threadsData; /// Data for threads
+	align(64) shared int threadsNum; /// number of threads currentlu accepting jobs
+	align(64) shared bool threadsDataLock; /// Any modification of threadsData array (change in size or pointer modification) had to be locked
+	align(64) int threadSelector; /// Index of thread to which add next job
+	FILE* logFile; /// File handle for defaultFlushLogs log file
 
 public:
-
+	/// Initialize thread pool
 	void initialize()
 	{
+
+		version (MM_NO_LOGS)
+		{
+			logsCacheNum = 0;
+		}
+		else
+		{
+			onFlushLogs = &defaultFlushLogs;
+			logsCacheNum = 1024;
+		}
+
 		logFile = fopen("trace.json", "w");
 		fprintf(logFile, "[");
 		fclose(logFile);
@@ -484,8 +528,10 @@ public:
 		assert(logFile !is null);
 	}
 
-	// Adds external thread to thread pool array
-	ThreadData* addThisThreadToThreadPool()
+	/// Registers external thread to thread pool array. There will be allocated data for this thread and it will have specified id
+	/// External threads are not joined at the end of thread pool execution
+	/// Returns ThreadData corresponding to external thread. To acually start executing, external thread had to call threadStartFunc() from returned variable
+	ThreadData* registerExternalThread()
 	{
 		lockThreadsData();
 		scope (exit)
@@ -506,7 +552,17 @@ public:
 		return threadData;
 	}
 
-	// Allows external threads to return from threadFunc
+	/// Unregisters external thread. Can be called only when external thread have left the thread pool
+	void unregistExternalThread(ThreadData* threadData)
+	{
+		lockThreadsData();
+		scope (exit)
+			unlockThreadsData();
+
+		disposeThreadData(threadData);
+	}
+
+	/// Allows external threads to return from threadStartFunc
 	void releaseExternalThreads()
 	{
 		lockThreadsData();
@@ -525,12 +581,12 @@ public:
 		}
 	}
 
+	/// Waits for all threads to finish and joins them (excluding external threads)
 	void waitThreads()
 	{
 		lockThreadsData();
 		scope (exit)
 			unlockThreadsData();
-
 		foreach (i, ref ThreadData* th; threadsData)
 		{
 			if (th is null)
@@ -538,8 +594,10 @@ public:
 
 			th.acceptJobs = false;
 			th.end = true;
-
-			if (th.externalThread)
+		}
+		foreach (i, ref ThreadData* th; threadsData)
+		{
+			if (th is null || th.externalThread)
 				continue;
 
 			th.thread.join();
@@ -547,6 +605,10 @@ public:
 		}
 	}
 
+	/// Sets number of threads to accept new jobs
+	/// If there were never so much threads created, they will be created
+	/// If number of threads set is smaller than there was threads before, they are not joined but they stop getting new jobs, they stop stealing jobs and they sleep longer
+	/// Locking operation
 	void setThreadsNum(int num)
 	{
 		assert(num <= gMaxThreadsNum);
@@ -583,6 +645,8 @@ public:
 
 	}
 
+	/// Adds job to be executed by thread pool, such a job won't be synchronized with any group or job
+	/// It is advised to use synchronized group of jobs
 	void addJobAsynchronous(JobData* data)
 	{
 		ThreadData* threadData = getThreadDataToAddJobTo();
@@ -590,6 +654,7 @@ public:
 		threadData.semaphore.post();
 	}
 
+	/// Adds job to be executed by thread pool, group specified in group data won't be finished until this job ends
 	void addJob(JobData* data)
 	{
 		assert(data.group);
@@ -597,11 +662,21 @@ public:
 		addJobAsynchronous(data);
 	}
 
+	/// Adds multiple jobs at once
+	/// Range has to return JobData*
+	/// Range has to have length property
+	/// Range is used so there is no need to allocate JobData*[]
+	/// All jobs has to belong to one group
 	void addJobsRange(Range)(Range arr)
 	{
 		if (arr.length == 0)
 		{
 			return;
+		}
+
+		foreach (JobData* threadData; arr)
+		{
+			assert(arr[0].group == threadData.group);
 		}
 		atomicOp!"+="(arr[0].group.jobsToBeDoneCount, cast(int) arr.length);
 		int threadsNumLocal = threadsNum;
@@ -629,6 +704,33 @@ public:
 
 	}
 
+	/// Adds group of jobs to threadPool, group won't be synchronized
+	void addGroupAsynchronous(JobsGroup* group)
+	{
+		group.thPool = &this;
+		if (group.jobs.length == 0)
+		{
+			// Immediately call group end
+			group.onGroupFinish();
+			return;
+		}
+
+		group.setUpJobs();
+		auto rng = group.jobs[].map!((ref a) => &a);
+		addJobsRange(rng);
+	}
+
+	/// Adds group of jobs to threadPool
+	/// Spwaning group will finish after this group have finished
+	void addGroup(JobsGroup* group, JobsGroup* spawnedByGroup)
+	{
+		assert(spawnedByGroup);
+		group.spawnedByGroup = spawnedByGroup;
+		atomicOp!"+="(spawnedByGroup.jobsToBeDoneCount, 1); // Increase by one, so 'spawning group' will wait for 'newly added group' to finish
+		addGroupAsynchronous(group); // Synchronized by jobsToBeDoneCount atomic variable
+	}
+
+	/// Explicitly calls onFlushLogs on all threads
 	void flushAllLogs()
 	{
 		lockThreadsData();
@@ -649,7 +751,52 @@ public:
 		}
 	}
 
+	/// Default implementation of flushing logs
+	/// Saves logs to trace.json file in format acceptable by Google Chrome tracking tool chrome://tracing/ 
+	/// Logs can be watched even if apllication crashed, but might require removing last log entry from trace.json
+	void defaultFlushLogs(ThreadData* threadData, JobLog[] logs)
+	{
+		// (log rows num) * (static json length * time length * duration length)
+		long start = useconds();
+		size_t size = (logs.length + 1) * (128 + 20 + 20);
+		size_t used = 0;
+
+		foreach (ref log; logs)
+		{
+			size += log.name.length; // size of name
+		}
+
+		char* buffer = cast(char*) malloc(size);
+
+		foreach (ref log; logs)
+		{
+			size_t charWritten;
+			if (log.complete)
+			{
+				charWritten = snprintf(buffer + used, size - used,
+						`{"name":"%s", "pid":1, "tid":%lld, "ph":"X", "ts":%lld,  "dur":%lld }, %s`,
+						log.name.ptr, threadData.threadId + 1, log.time, log.duration, "\n".ptr);
+
+			}
+			else
+			{
+				charWritten = snprintf(buffer + used, size - used,
+						`{"name":"%s", "pid":1, "tid":%lld, "ph":"B", "ts":%lld }, %s`,
+						log.name.ptr, threadData.threadId + 1, log.time, "\n".ptr);
+			}
+			used += charWritten;
+		}
+
+		long end = useconds();
+		size_t charWritten = snprintf(buffer + used, size - used,
+				`{"name":"logFlush", "pid":1, "tid":%lld, "ph":"X", "ts":%lld,  "dur":%lld }, %s`,
+				threadData.threadId + 1, start, end - start, "\n".ptr);
+		used += charWritten;
+		fwrite(buffer, 1, used, logFile);
+	}
+
 private:
+	/// Atomic lock
 	void lockThreadsData()
 	{
 		// Only one thread at a time can change threads number in a threadpool
@@ -658,24 +805,28 @@ private:
 		}
 	}
 
+	/// Atomic unlock
 	void unlockThreadsData()
 	{
 		atomicStore(threadsDataLock, false);
 	}
 
+	/// Allocate ThreadData
 	ThreadData* makeThreadData()
 	{
 		ThreadData* threadData = makeVar!ThreadData();
 		threadData.jobsToDo.initialize();
-		threadData.logs = makeVarArray!(JobLog)(gLogsCacheNum);
+		threadData.logs = makeVarArray!(JobLog)(logsCacheNum);
 		return threadData;
 	}
 
+	/// Dispose ThreadData
 	void disposeThreadData(ThreadData* data)
 	{
 		return disposeVar(data);
 	}
 
+	/// Get thread most suiting to add job to
 	ThreadData* getThreadDataToAddJobTo()
 	{
 		threadSelector++;
@@ -698,6 +849,7 @@ private:
 		assert(0);
 	}
 
+	/// Create log on start of job
 	void onStartJob(JobData* data, ThreadData* threadData)
 	{
 		version (MM_NO_LOGS)
@@ -705,7 +857,11 @@ private:
 		}
 		else
 		{
-			if (threadData.lastLogIndex >= threadData.logs.length - 1)
+			if (cast(int) threadData.logs.length <= 0)
+			{
+				return;
+			}
+			if (threadData.lastLogIndex >= cast(int) threadData.logs.length - 1)
 			{
 				onThreadFlushLogs(threadData);
 			}
@@ -716,12 +872,12 @@ private:
 			log.name = data.name;
 			log.time = useconds();
 			log.complete = false;
-
 			threadData.logs[threadData.lastLogIndex] = log;
 
 		}
 	}
 
+	/// Set log finish time on end of job
 	void onEndJob(JobData* data, ThreadData* threadData)
 	{
 		version (MM_NO_LOGS)
@@ -729,6 +885,10 @@ private:
 		}
 		else
 		{
+			if (cast(int) threadData.logs.length <= 0)
+			{
+				return;
+			}
 			assert(threadData.lastLogIndex < threadData.logs.length);
 			JobLog* log = &threadData.logs[threadData.lastLogIndex];
 			log.duration = useconds() - log.time + 3;
@@ -736,63 +896,25 @@ private:
 		}
 	}
 
+	/// Flush logs
 	void onThreadFlushLogs(ThreadData* threadData)
 	{
-		version (MM_NO_LOGS)
+		scope (exit)
 		{
-		}
-		else
-		{
-			assert(threadData);
-
-			long start = useconds();
-			if (threadData.lastLogIndex < 0)
-			{
-				return;
-			}
-			size_t size = 0;
-			size_t used = 0;
-
-			// (log rows num) * (static json length * time length * duration length)
-			size += (threadData.lastLogIndex + 1 + 1) * (128 + 20 + 20);
-
-			foreach (ref log; threadData.logs[0 .. threadData.lastLogIndex + 1])
-			{
-				size += log.name.length; // size of name
-			}
-
-			char* buffer = cast(char*) malloc(size);
-
-			foreach (ref log; threadData.logs[0 .. threadData.lastLogIndex + 1])
-			{
-				size_t charWritten;
-				if (log.complete)
-				{
-					charWritten = snprintf(buffer + used, size - used,
-							`{"name":"%s", "pid":1, "tid":%lld, "ph":"X", "ts":%lld,  "dur":%lld },`,
-							log.name.ptr, threadData.threadId + 1, log.time, log.duration);
-
-				}
-				else
-				{
-					charWritten = snprintf(buffer + used, size - used,
-							`{"name":"%s", "pid":1, "tid":%lld, "ph":"B", "ts":%lld },`,
-							log.name.ptr, threadData.threadId + 1, log.time);
-				}
-				used += charWritten;
-			}
-
-			long end = useconds();
-			size_t charWritten = snprintf(buffer + used, size - used,
-					`{"name":"logFlush", "pid":1, "tid":%lld, "ph":"X", "ts":%lld,  "dur":%lld },`,
-					threadData.threadId + 1, start, end - start);
-			used += charWritten;
-			fwrite(buffer, 1, used, logFile);
+			threadData.lastLogIndex = -1;
 		}
 
-		threadData.lastLogIndex = -1;
+		assert(threadData);
+
+		if (threadData.lastLogIndex < 0 || onFlushLogs is null)
+		{
+			return;
+		}
+
+		onFlushLogs(threadData, threadData.logs[0 .. threadData.lastLogIndex + 1]);
 	}
 
+	// Steal job from another thread
 	JobData* stealJob(int threadNum)
 	{
 		foreach (thSteal; 0 .. atomicLoad(threadsNum))
@@ -818,36 +940,20 @@ private:
 struct JobsGroup
 {
 public:
-	string name;
-	JobData[] jobs;
-	ThreadPool* thPool;
+	string name; /// Name of group
+	JobData[] jobs; /// Jobs to be executed by this group, jobs have to live as long as group lives
+	ThreadPool* thPool; /// Thread pool of this group
+	void delegate(JobsGroup* group) onFinish; // Delegate called when group will finish, can be used to free memory
 
-	this(ThreadPool* thPool, string name, JobData[] jobs = [])
+	this(string name, JobData[] jobs = [])
 	{
 		this.name = name;
 		this.jobs = jobs;
-		this.thPool = thPool;
+		jobsToBeDoneCount = 0;
 	}
 
-	void start()
-	{
-		if (jobs.length == 0)
-		{
-			// Immediately call group end
-			onGroupFinish();
-			return;
-		}
-
-		setUpJobs();
-		auto rng = jobs[].map!((ref a) => &a);
-		thPool.addJobsRange(rng);
-	}
-
-private:
-	JobsGroup*[] children;
-	align(64) shared int dependicesWaitCount;
-	align(64) shared int jobsToBeDoneCount;
-
+	/// Make this group dependant from another group
+	/// Dependant group won';'t start untill its dependices will be fulfilled
 	void dependantOn(JobsGroup* parent)
 	{
 		size_t newLen = parent.children.length + 1;
@@ -856,16 +962,37 @@ private:
 		JobsGroup*[] arr = ptr[0 .. newLen];
 		memcpy(arr.ptr, parent.children.ptr, elSize * parent.children.length);
 		arr[$ - 1] = &this;
+		free(parent.children.ptr);
 		parent.children = arr;
-
+		// parent.children ~= &this;
 		atomicOp!"+="(dependicesWaitCount, 1);
 	}
 
+private:
+	JobsGroup* spawnedByGroup; /// Group which spawned this group, if present spwaning group is waiting for this group to finish
+	JobsGroup*[] children; /// Groups depending on this group
+	align(64) shared int dependicesWaitCount; /// Count of dependices this group waits for
+	align(64) shared int jobsToBeDoneCount; /// Number of this group jobs still executing
+
+	/// Checks if depending groups or spawning group have to be started
+	/// Executes user onFinish function
 	void onGroupFinish()
 	{
+
 		decrementChildrenDependices();
+		if (spawnedByGroup)
+		{
+			auto num = atomicOp!"-="(spawnedByGroup.jobsToBeDoneCount, 1);
+			if (num == 0)
+			{
+				spawnedByGroup.onGroupFinish();
+			}
+		}
+		if (onFinish)
+			onFinish(&this);
 	}
 
+	/// Check if decrement dependices counter and start them if theirs dependices are fulfilled
 	void decrementChildrenDependices()
 	{
 		foreach (JobsGroup* group; children)
@@ -874,15 +1001,13 @@ private:
 			assert(num >= 0);
 			if (num == 0)
 			{
-				group.start();
+				thPool.addGroupAsynchronous(group); // All dependices of this group are fulfilled, so is already synchronized
 			}
 		}
 	}
-
+	/// Prepare jobs data for adding to thread pool
 	void setUpJobs()
 	{
-		atomicStore(jobsToBeDoneCount, 0);
-
 		foreach (i; 0 .. jobs.length)
 		{
 			jobs[i].group = &this;
@@ -891,6 +1016,12 @@ private:
 
 }
 
+/// Main function executed by thread present in thread pool
+/// Executes functions from its own queue
+/// If there are no jobs in its queue, steals from another thread
+/// If there is nothing to steal, sleeps on its semaphore for a while (stage when cpu is not used)
+/// Sleep time is longer for jobs not accepting jobs, they don't exit because it is hard to guarantee that nobody is adding to them some job (thread might exit but job will be added anyway and application will malfunctio
+/// Thread end only when it's queue is empty. Jobs shouldn't be added to queue after ThreadPool.waitThreads() call
 private void threadFunc(ThreadData* threadData)
 {
 	ThreadPool* threadPool = threadData.threadPool;
@@ -936,14 +1067,16 @@ private void threadFunc(ThreadData* threadData)
 
 		// Do the job
 		threadPool.onStartJob(data, threadData);
-		data.del(data);
-
-		auto num = atomicOp!"-="(data.group.jobsToBeDoneCount, 1);
-		if (num == 0)
-		{
-			data.group.onGroupFinish();
-		}
+		data.del(threadData, data);
 		threadPool.onEndJob(data, threadData);
+		if (data.group)
+		{
+			auto num = atomicOp!"-="(data.group.jobsToBeDoneCount, 1);
+			if (num == 0)
+			{
+				data.group.onGroupFinish();
+			}
+		}
 
 	}
 	assert(threadData.jobsToDo.empty());
@@ -955,31 +1088,103 @@ private void threadFunc(ThreadData* threadData)
 
 void testThreadPool()
 {
-	enum jobsNum = 16 * 1024 * 4;
+	enum jobsNum = 1024;
 
 	ThreadPool thPool;
 	thPool.initialize();
-	ThreadData* threadData = thPool.addThisThreadToThreadPool();
+	ThreadData* mainThread = thPool.registerExternalThread();
+	JobData startFrameJob;
+
+	JobData[jobsNum] frameJobs;
+	shared int frameNum;
 
 	struct TestApp
 	{
-		void run(JobData* data)
+		void startFrame(ThreadData* threadData, JobData* startFrameJob)
 		{
 			changeThreadsNum();
-			data.del = &run2;
-			data.name = "run2";
+			startFrameJob.del = &continueFrameInOtherJob;
+			startFrameJob.name = "cont frm";
+			thPool.addJobAsynchronous(startFrameJob); /// startFrame is the only job in thread pool no synchronization is required
+		}
+
+		void continueFrameInOtherJob(ThreadData* threadData, JobData* startFrameJob)
+		{
+			static struct JobGroupMemory
+			{
+				JobsGroup group;
+				TestApp* app;
+				JobData* startFrameJob;
+
+				void freeAndContinue(JobsGroup* group)
+				{
+					disposeVar!(JobGroupMemory)(&this);
+					startFrameJob.del = &app.finishFrame;
+					startFrameJob.name = "finishFrame";
+					group.thPool.addJobAsynchronous(startFrameJob); /// startFrameJob is continuation of 'startFrame data', all important jobs finished so it is the only job, no synchronization required
+				}
+			}
+
+			JobGroupMemory* important = makeVar!JobGroupMemory();
+			important.app = &this;
+			important.startFrameJob = startFrameJob;
+
+			foreach (ref j; frameJobs)
+				j = JobData(&this.importantTask, "vip");
+
+			important.group = JobsGroup("a lot of jobs", frameJobs[]);
+			important.group.onFinish = &important.freeAndContinue;
+
+			thPool.addGroupAsynchronous(&important.group); // No Synchronization required continueFrameInOtherJob is the only job
+		}
+
+		void importantTask(ThreadData* threadData, JobData* data)
+		{
+			// All tasks created here will, make 'important' wait with finish untill this jobs will finish
+
+			/// Add 10 tasks in group
+			static struct JobGroupMemory
+			{
+				JobsGroup group;
+				JobData[10] jobs;
+
+				void freeMee(JobsGroup* group)
+				{
+					disposeVar!(JobGroupMemory)(&this);
+				}
+			}
+
+			JobGroupMemory* subGroup = makeVar!JobGroupMemory();
+
+			foreach (ref j; subGroup.jobs)
+				j = JobData(&this.importantTaskSubTask, "vip sub");
+
+			subGroup.group = JobsGroup("10 jobs", subGroup.jobs[]);
+			subGroup.group.onFinish = &subGroup.freeMee;
+			thPool.addGroup(&subGroup.group, data.group);
+
+			/// Add single tasks
+			data.del = &importantTaskSubTask;
+			data.name = "sub";
 			thPool.addJob(data);
 		}
 
-		void run2(JobData* data)
+		void importantTaskSubTask(ThreadData* threadData, JobData* data)
 		{
-			changeThreadsNum();
+
 		}
 
-		void stop(JobData* data)
+		void finishFrame(ThreadData* threadData, JobData* startFrameJob)
 		{
-			thPool.releaseExternalThreads();
-			// D_Thread.sleep(dur!"msecs"(1));
+			auto num = atomicOp!"+="(frameNum, 1);
+			if (num == 10)
+			{
+				thPool.releaseExternalThreads(); // After 10 frames exit application
+				return;
+			}
+			*startFrameJob = JobData(&startFrame, "StartFrame"); //
+			thPool.addJobAsynchronous(startFrameJob); // Start next frame, there should't be any other tasks execept of this one, so no synchronization is required
+
 		}
 
 		void changeThreadsNum()
@@ -1001,22 +1206,22 @@ void testThreadPool()
 		thPool.setThreadsNum(threadsNum);
 		TestApp testApp = TestApp();
 
-		JobData[jobsNum] jobs;
-		foreach (i; 0 .. jobsNum)
-			jobs[i] = JobData(&testApp.run, "Run");
+		// foreach (i; 0 .. jobsNum)
+		// 	jobs[i] = JobData(&testApp.startFrame, "Run");
 
-		JobsGroup mainGroup = JobsGroup(&thPool, "Main Group", jobs[]);
+		// JobsGroup mainGroup = JobsGroup("Main Group", jobs[]);
 
-		JobData[1] groupEndJobs;
-		groupEndJobs[0] = JobData(&testApp.stop, "Stop Threads");
-		JobsGroup groupEnd = JobsGroup(&thPool, "End Group", groupEndJobs[]);
-		groupEnd.dependantOn(&mainGroup);
-
+		// JobData[1] groupEndJobs;
+		// groupEndJobs[0] = JobData(&testApp.stop, "Stop Threads");
+		// JobsGroup groupEnd = JobsGroup("End Group", groupEndJobs[]);
+		// groupEnd.dependantOn(&mainGroup);
+		startFrameJob = JobData(&testApp.startFrame, "StartFrame"); // Start first frame, will live as long as main thread won't exit from threadStartFunc()
 		ulong start = useconds();
-		mainGroup.start();
-		threadData.threadStartFunc();
+		thPool.addJobAsynchronous(&startFrameJob); // Synchronization is made by groupEnd (last job in pool) which calls thPool.releaseExternalThreads();
+		mainThread.threadStartFunc();
 		ulong end = useconds();
-		printf("Threads Num: %2d jobs/ms: %3.2f\n", threadsNum, jobsNum / ((end - start) / 1000.0f));
+		printf("Threads Num: %2d jobs/ms: %3.2f\n", threadsNum,
+				jobsNum * (1 + 10 + 1) / ((end - start) / 1000.0f));
 		// D_Thread.sleep(dur!"msecs"(10));
 	}
 
@@ -1026,6 +1231,7 @@ void testThreadPool()
 	testThreadsNum(16);
 	thPool.flushAllLogs();
 	thPool.waitThreads();
+	thPool.unregistExternalThread(mainThread);
 
 }
 
