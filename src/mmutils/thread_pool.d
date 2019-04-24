@@ -8,7 +8,7 @@ import core.stdc.string : memcpy;
 import std.stdio;
 import std.algorithm : map;
 
-// version = MM_NO_LOGS; // Disable log creation
+version = MM_NO_LOGS; // Disable log creation
 version = MM_USE_POSIX_THREADS; // Use posix threads insted of standard library, required for betterC
 
 //////////////////////////////////////////////
@@ -147,6 +147,8 @@ void instructionPause()
 
 struct LowLockQueue(T, LockType = ulong)
 {
+	// static Node[32 * 1024] alloc;
+	// static int num;
 private:
 	static struct Node
 	{
@@ -179,7 +181,7 @@ public:
 			instructionPause();
 
 		bool isEmpty = first.next == null;
-		atomicStore(producerLock, false);
+		atomicStore!(MemoryOrder.rel)(producerLock, false);
 		return isEmpty;
 	}
 
@@ -192,7 +194,7 @@ public:
 
 		last.next = tmp;
 		last = tmp;
-		atomicStore(producerLock, false);
+		atomicStore!(MemoryOrder.rel)(producerLock, false);
 
 	}
 
@@ -203,11 +205,22 @@ public:
 		Node* firstInChain;
 		Node* lastInChain;
 		Node* tmp = makeVar!Node(Node(t[start]));
+
+		// Node* tmp = &alloc[num++];
+		// tmp.value = t[start];
+		// if (num >= alloc.length)
+		// 	num = 0;
+
 		firstInChain = tmp;
 		lastInChain = tmp;
 		for (int i = start + stride; i < len; i += stride) // foreach (i; 1 .. t.length)
 		{
 			tmp = makeVar!Node(Node(t[i]));
+			// tmp = &alloc[num++];
+			// tmp.value = t[i];
+			// if (num >= alloc.length)
+			// 	num = 0;
+
 			lastInChain.next = tmp;
 			lastInChain = tmp;
 		}
@@ -217,15 +230,14 @@ public:
 
 		last.next = firstInChain;
 		last = lastInChain;
-		atomicStore(producerLock, cast(LockType) false);
+		atomicStore!(MemoryOrder.rel)(producerLock, cast(LockType) false);
 
 	}
 
 	T pop()
 	{
 		while (!cas(&consumerLock, cast(LockType) false, cast(LockType) true))
-		{
-		}
+			instructionPause();
 
 		Node* theFirst = first;
 		Node* theNext = first.next;
@@ -235,13 +247,13 @@ public:
 			T result = theNext.value;
 			theNext.value = T.init;
 			first = theNext;
-			atomicStore(consumerLock, cast(LockType) false);
+			atomicStore!(MemoryOrder.rel)(consumerLock, cast(LockType) false);
 
 			disposeVar(theFirst);
 			return result;
 		}
 
-		atomicStore(consumerLock, cast(LockType) false);
+		atomicStore!(MemoryOrder.rel)(consumerLock, cast(LockType) false);
 		return T.init;
 	}
 }
@@ -477,6 +489,7 @@ private:
 	align(64) Thread thread; /// Systemn thread handle
 	JobLog[] logs; /// Logs cache
 	int lastLogIndex = -1; /// Last created log index
+	int jobsDoneCount;
 
 	bool end; /// Check if thread has to exit. Thread will exit only if end is true and jobsToDo is empty
 	bool acceptJobs; /// Check if thread should accept new jobs, If false thread won't steal jobs from other threads and will sleep longer if queue js empty
@@ -507,6 +520,27 @@ private:
 	FILE* logFile; /// File handle for defaultFlushLogs log file
 
 public:
+	int jobsDoneCount()
+	{
+		int sum;
+		foreach (i, ref ThreadData* th; threadsData)
+		{
+			if (th is null)
+				continue;
+			sum += th.jobsDoneCount;
+		}
+		return sum;
+	}
+
+	void jobsDoneCountReset()
+	{
+		foreach (i, ref ThreadData* th; threadsData)
+		{
+			if (th is null)
+				continue;
+			th.jobsDoneCount = 0;
+		}
+	}
 	/// Initialize thread pool
 	void initialize()
 	{
@@ -852,6 +886,8 @@ private:
 	/// Create log on start of job
 	void onStartJob(JobData* data, ThreadData* threadData)
 	{
+
+		threadData.jobsDoneCount++;
 		version (MM_NO_LOGS)
 		{
 		}
@@ -891,7 +927,7 @@ private:
 			}
 			assert(threadData.lastLogIndex < threadData.logs.length);
 			JobLog* log = &threadData.logs[threadData.lastLogIndex];
-			log.duration = useconds() - log.time + 3;
+			log.duration = useconds() - log.time;
 			log.complete = true;
 		}
 	}
@@ -1177,6 +1213,7 @@ void testThreadPool()
 		void finishFrame(ThreadData* threadData, JobData* startFrameJob)
 		{
 			auto num = atomicOp!"+="(frameNum, 1);
+			// writeln(num);
 			if (num == 10)
 			{
 				thPool.releaseExternalThreads(); // After 10 frames exit application
@@ -1203,6 +1240,8 @@ void testThreadPool()
 
 	void testThreadsNum(int threadsNum)
 	{
+		frameNum = 0;
+		thPool.jobsDoneCountReset();
 		thPool.setThreadsNum(threadsNum);
 		TestApp testApp = TestApp();
 
@@ -1221,14 +1260,14 @@ void testThreadPool()
 		mainThread.threadStartFunc();
 		ulong end = useconds();
 		printf("Threads Num: %2d jobs/ms: %3.2f\n", threadsNum,
-				jobsNum * (1 + 10 + 1) / ((end - start) / 1000.0f));
+				thPool.jobsDoneCount / ((end - start) / 1000.0f));
 		// D_Thread.sleep(dur!"msecs"(10));
 	}
 
 	testThreadsNum(1);
 	testThreadsNum(4);
 	testThreadsNum(8);
-	testThreadsNum(16);
+	// testThreadsNum(16);
 	thPool.flushAllLogs();
 	thPool.waitThreads();
 	thPool.unregistExternalThread(mainThread);
