@@ -44,15 +44,11 @@ T* makeVar(T)(T init)
 	// return Mallocator.instance.make!T(init);
 }
 
-// import std.experimental.allocator;
-// import std.experimental.allocator.mallocator;
-
 T* makeVar(T)()
 {
 	T init;
 	T* el = cast(T*) malloc(T.sizeof);
 	memcpy(el, &init, T.sizeof);
-	// return Mallocator.instance.make!T(init);
 	return el;
 }
 
@@ -64,7 +60,6 @@ T[] makeVarArray(T)(int num, T init = T.init)
 	{
 		memcpy(&el, &init, T.sizeof);
 	}
-	// return Mallocator.instance.makeArray!T(num);
 	return arr;
 }
 
@@ -116,7 +111,7 @@ long useconds()
 }
 
 //////////////////////////////////////////////
-//////////////////// Queue ///////////////////
+//////////////////// Pause ///////////////////
 //////////////////////////////////////////////
 
 void instructionPause()
@@ -142,71 +137,6 @@ void instructionPause()
 		{
 			static assert(0);
 		}
-	}
-}
-
-struct LowLockQueue(LockType = ulong)
-{
-private:
-
-	align(64) shared LockType producerLock;
-	align(64) JobData* first;
-
-	bool empty()
-	{
-		while (!cas(&producerLock, cast(LockType) false, cast(LockType) true))
-			instructionPause();
-
-		bool isEmpty = first == null;
-		atomicStore!(MemoryOrder.rel)(producerLock, false);
-		return isEmpty;
-	}
-
-	void add(JobData* t)
-	{
-		while (!cas(&producerLock, cast(LockType) false, cast(LockType) true))
-			instructionPause();
-
-		t.next = first;
-		first = t;
-
-		atomicStore!(MemoryOrder.rel)(producerLock, false);
-	}
-
-	// Add every, nth element to better preserve execution order of input range
-	void addRange(Range)(Range arr)
-	{
-		if (arr.length == 0)
-			return;
-
-		JobData* start = arr[0];
-		JobData* last = start;
-
-		foreach (t; arr[1 .. $])
-		{
-			last.next = t;
-			last = t;
-		}
-
-		while (!cas(&producerLock, cast(LockType) false, cast(LockType) true))
-			instructionPause();
-		last.next = first;
-		first = start;
-		atomicStore!(MemoryOrder.rel)(producerLock, cast(LockType) false);
-
-	}
-
-	JobData* pop()
-	{
-		while (!cas(&producerLock, cast(LockType) false, cast(LockType) true))
-			instructionPause();
-
-		assert(first != null);
-		JobData* result = first;
-		first = first.next;
-
-		atomicStore!(MemoryOrder.rel)(producerLock, cast(LockType) false);
-		return result;
 	}
 }
 
@@ -409,7 +339,6 @@ struct JobLog
 	string name; /// Name of job
 	ulong time; /// Time started (us)
 	ulong duration; /// Took time (us)
-	bool complete; /// If job is currently executing 
 }
 
 /// Structure containing job data
@@ -430,11 +359,71 @@ struct JobData
 /// Stores cache for logs
 struct ThreadData
 {
+	alias LockType = uint;
 public:
 	ThreadPool* threadPool; /// Pool this thread belongs to
 	int threadId; /// Thread id. Valid only for this thread pool
+
+	bool empty()
+	{
+		while (!cas(&lock, cast(LockType) false, cast(LockType) true))
+			instructionPause();
+
+		bool isEmpty = first == null;
+		atomicStore!(MemoryOrder.rel)(lock, false);
+		return isEmpty;
+	}
+
+	void add(JobData* t)
+	{
+		while (!cas(&lock, cast(LockType) false, cast(LockType) true))
+			instructionPause();
+
+		t.next = first;
+		first = t;
+
+		atomicStore!(MemoryOrder.rel)(lock, false);
+	}
+
+	// Add every, nth element to better preserve execution order of input range
+	void addRange(Range)(Range arr)
+	{
+		if (arr.length == 0)
+			return;
+
+		JobData* start = arr[0];
+		JobData* last = start;
+
+		foreach (t; arr[1 .. $])
+		{
+			last.next = t;
+			last = t;
+		}
+
+		while (!cas(&lock, cast(LockType) false, cast(LockType) true))
+			instructionPause();
+		last.next = first;
+		first = start;
+		atomicStore!(MemoryOrder.rel)(lock, cast(LockType) false);
+
+	}
+
+	JobData* pop()
+	{
+		while (!cas(&lock, cast(LockType) false, cast(LockType) true))
+			instructionPause();
+
+		assert(first != null);
+		JobData* result = first;
+		first = first.next;
+
+		atomicStore!(MemoryOrder.rel)(lock, cast(LockType) false);
+		return result;
+	}
+
 private:
-	align(64) LowLockQueue!(bool) jobsToDo; /// Queue of jobs
+	align(64) shared LockType lock; /// Lock for accesing list of Jobs
+	align(64) JobData* first; /// Fist element in list of Jobs
 	align(64) Semaphore semaphore; /// Semaphore to wake/sleep this thread
 	align(64) Thread thread; /// Systemn thread handle
 	JobLog[] logs; /// Logs cache
@@ -451,6 +440,7 @@ private:
 		end = false;
 		threadFunc(&this);
 	}
+
 }
 
 /// Thread Pool
@@ -635,7 +625,7 @@ public:
 	void addJobAsynchronous(JobData* data)
 	{
 		ThreadData* threadData = getThreadDataToAddJobTo();
-		threadData.jobsToDo.add(data);
+		threadData.add(data);
 		threadData.semaphore.post();
 	}
 
@@ -671,7 +661,7 @@ public:
 			foreach (i, ThreadData* threadData; threadsData[0 .. threadsNumLocal])
 			{
 				auto slice = arr[i * part .. (i + 1) * part];
-				threadData.jobsToDo.addRange(slice);
+				threadData.addRange(slice);
 
 				foreach (kkk; 0 .. part)
 				{
@@ -683,7 +673,7 @@ public:
 		}
 		foreach (i, ThreadData* threadData; threadsData[0 .. arr.length])
 		{
-			threadData.jobsToDo.add(arr[i]);
+			threadData.add(arr[i]);
 			threadData.semaphore.post();
 		}
 
@@ -755,20 +745,10 @@ public:
 
 		foreach (ref log; logs)
 		{
-			size_t charWritten;
-			if (log.complete)
-			{
-				charWritten = snprintf(buffer + used, size - used,
-						`{"name":"%s", "pid":1, "tid":%lld, "ph":"X", "ts":%lld,  "dur":%lld }, %s`,
-						log.name.ptr, threadData.threadId + 1, log.time, log.duration, "\n".ptr);
 
-			}
-			else
-			{
-				charWritten = snprintf(buffer + used, size - used,
-						`{"name":"%s", "pid":1, "tid":%lld, "ph":"B", "ts":%lld }, %s`,
-						log.name.ptr, threadData.threadId + 1, log.time, "\n".ptr);
-			}
+			size_t charWritten = snprintf(buffer + used, size - used,
+					`{"name":"%s", "pid":1, "tid":%lld, "ph":"X", "ts":%lld,  "dur":%lld }, %s`,
+					log.name.ptr, threadData.threadId + 1, log.time, log.duration, "\n".ptr);
 			used += charWritten;
 		}
 
@@ -857,9 +837,7 @@ private:
 			JobLog log;
 			log.name = data.name;
 			log.time = useconds();
-			log.complete = false;
 			threadData.logs[threadData.lastLogIndex] = log;
-
 		}
 	}
 
@@ -913,7 +891,7 @@ private:
 			if (threadData is null || !threadData.semaphore.tryWait())
 				continue;
 
-			JobData* data = threadData.jobsToDo.pop();
+			JobData* data = threadData.pop();
 
 			assert(data !is null);
 			return data;
@@ -939,7 +917,7 @@ public:
 	}
 
 	/// Make this group dependant from another group
-	/// Dependant group won';'t start untill its dependices will be fulfilled
+	/// Dependant group won't start untill its dependices will be fulfilled
 	void dependantOn(JobsGroup* parent)
 	{
 		size_t newLen = parent.children.length + 1;
@@ -1018,12 +996,12 @@ private void threadFunc(ThreadData* threadData)
 
 	}
 
-	while (!atomicLoad!(MemoryOrder.raw)(threadData.end) || !threadData.jobsToDo.empty())
+	while (!atomicLoad!(MemoryOrder.raw)(threadData.end) || !threadData.empty())
 	{
 		JobData* data;
 		if (threadData.semaphore.tryWait())
 		{
-			data = threadData.jobsToDo.pop();
+			data = threadData.pop();
 			assert(data !is null);
 		}
 		else
@@ -1040,7 +1018,7 @@ private void threadFunc(ThreadData* threadData)
 				bool ok = threadData.semaphore.timedWait(1_000 + !acceptJobs * 10_000);
 				if (ok)
 				{
-					data = threadData.jobsToDo.pop();
+					data = threadData.pop();
 					assert(data !is null);
 				}
 			}
@@ -1056,7 +1034,7 @@ private void threadFunc(ThreadData* threadData)
 		threadPool.onStartJob(data, threadData);
 		data.del(threadData, data);
 		threadPool.onEndJob(data, threadData);
-		if (data.group) ///////////////////////////////////////////////
+		if (data.group)
 		{
 			auto num = atomicOp!"-="(data.group.jobsToBeDoneCount, 1);
 			if (num == 0)
@@ -1066,7 +1044,7 @@ private void threadFunc(ThreadData* threadData)
 		}
 
 	}
-	assert(threadData.jobsToDo.empty());
+	assert(threadData.empty());
 }
 
 //////////////////////////////////////////////
@@ -1075,18 +1053,30 @@ private void threadFunc(ThreadData* threadData)
 
 void testThreadPool()
 {
-	enum jobsNum = 1024 * 32;
+	enum jobsNum = 1024 * 4;
 
 	ThreadPool thPool;
 	thPool.initialize();
-	ThreadData* mainThread = thPool.registerExternalThread();
-	JobData startFrameJobData;
 
-	JobData[jobsNum] frameJobs;
-	shared int frameNum;
+	ThreadData* mainThread = thPool.registerExternalThread(); // Register main thread as thread 0
+	JobData startFrameJobData; // Variable to store job starting the TestApp
 
+	JobData[jobsNum] frameJobs; // Array to store jobs created in TestApp.continueFrameInOtherJob
+	shared int frameNum;// Simulate game loop, run jobs for few frames and exit
+
+
+	// App starts as one job &startFrame
+	// Then using own JobData memory spawns 'continueFrameInOtherJob' job
+	// 'continueFrameInOtherJob' job fills frameJobs array with &importantTask jobs. Group created to run this jobs is freed using JobsGroup.onFinish delegate
+	// 'importantTask' allocate new jobs (&importantTaskSubTask) and group, they all deallocated using JobsGroup.onFinish delegate
+	// 'continueFrameInOtherJob' waits for all 'importantTask'.  All 'importantTask' wait for all 'importantTaskSubTask'. 
+	// So after all 'importantTaskSubTask' and 'importantTask' are done 'continueFrameInOtherJob' ends and spawns &finishFrame
+	// 'finishFrame' spawn new frame or exits application
 	struct TestApp
 	{
+		// First job in frame
+		// Do some stuff and spawn some other job
+		// 1 - Number of jobs of this kind in frame
 		void startFrame(ThreadData* threadData, JobData* startFrameJobData)
 		{
 			changeThreadsNum();
@@ -1095,6 +1085,9 @@ void testThreadPool()
 			thPool.addJobAsynchronous(startFrameJobData); /// startFrame is the only job in thread pool no synchronization is required
 		}
 
+		// Job for some big system
+		// Spawns some jobs and when they are done spawns finishFrame job
+		// 1 - Number of jobs of this kind in frame
 		void continueFrameInOtherJob(ThreadData* threadData, JobData* startFrameJobData)
 		{
 			static struct JobGroupMemory
@@ -1125,9 +1118,11 @@ void testThreadPool()
 			thPool.addGroupAsynchronous(&important.group); // No Synchronization required continueFrameInOtherJob is the only job
 		}
 
+		// Some task which by itself does a lot of computation so it spawns few more jobs
+		// jobsNum - Number of jobs of this kind in frame
 		void importantTask(ThreadData* threadData, JobData* data)
 		{
-			// All tasks created here will, make 'important' wait with finish untill this jobs will finish
+			// All tasks created here will, make 'importantTask' wait with finish untill this jobs will finish
 
 			/// Add 10 tasks in group
 			static struct JobGroupMemory
@@ -1156,15 +1151,18 @@ void testThreadPool()
 			thPool.addJob(data);
 		}
 
+		// Job which simply does some work
+		// jobsNum * 128 - Number of jobs of this kind in frame
 		void importantTaskSubTask(ThreadData* threadData, JobData* data)
 		{
 
 		}
 
+		// Finish frame
+		// 1 - Number of jobs of this kind in frame
 		void finishFrame(ThreadData* threadData, JobData* startFrameJobData)
 		{
 			auto num = atomicOp!"+="(frameNum, 1);
-			// writeln(num);
 			if (num == 10)
 			{
 				thPool.releaseExternalThreads(); // After 10 frames exit application
@@ -1175,18 +1173,19 @@ void testThreadPool()
 
 		}
 
-		void changeThreadsNum()
-		{
-			// import std.random : uniform;
+		// Func to test if dynamic changing of threads number works
+		// void changeThreadsNum()
+		// {
+		// 	import std.random : uniform;
 
-			// bool change = uniform(0, 100) == 3;
-			// if (!change)
-			// 	return;
+		// 	bool change = uniform(0, 100) == 3;
+		// 	if (!change)
+		// 		return;
 
-			// int threadsNum = uniform(3, 5);
-			// thPool.setThreadsNum(threadsNum);
+		// 	int threadsNum = uniform(3, 5);
+		// 	thPool.setThreadsNum(threadsNum);
 
-		}
+		// }
 	}
 
 	void testThreadsNum(int threadsNum)
@@ -1206,7 +1205,7 @@ void testThreadPool()
 				(end - start) / 1000.0f, thPool.jobsDoneCount / ((end - start) / 1000.0f));
 	}
 
-	//while (1)
+	// while (1)
 	{
 		// foreach (i; 1 .. 32)
 		// 	testThreadsNum(i);
@@ -1218,7 +1217,6 @@ void testThreadPool()
 	thPool.flushAllLogs();
 	thPool.waitThreads();
 	thPool.unregistExternalThread(mainThread);
-
 }
 
 version (D_BetterC)
