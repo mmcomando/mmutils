@@ -577,7 +577,6 @@ public:
 	/// Allows external threads to return from threadStartFunc
 	void releaseExternalThreads()
 	{
-
 		lockThreadsData();
 		scope (exit)
 			unlockThreadsData();
@@ -740,8 +739,7 @@ public:
 	}
 
 	/// Adds group of jobs to threadPool, group won't be synchronized
-	/// If threadNum is different than -1 only thread with threadNum will be able to execute jobs in given group
-	void addGroupAsynchronous(JobsGroup* group, int threadNum = -1)
+	void addGroupAsynchronous(JobsGroup* group)
 	{
 		group.thPool = &this;
 		if (group.jobs.length == 0)
@@ -753,18 +751,17 @@ public:
 
 		group.setUpJobs();
 		auto rng = group.jobs[].map!((ref a) => &a);
-		addJobsRange(rng, threadNum);
+		addJobsRange(rng, group.executeOnThreadNum);
 	}
 
 	/// Adds group of jobs to threadPool
 	/// Spwaning group will finish after this group have finished
-	/// If threadNum is different than -1 only thread with threadNum will be able to execute jobs in given group
-	void addGroup(JobsGroup* group, JobsGroup* spawnedByGroup, int threadNum = -1)
+	void addGroup(JobsGroup* group, JobsGroup* spawnedByGroup)
 	{
 		assert(spawnedByGroup);
 		group.spawnedByGroup = spawnedByGroup;
 		atomicOp!"+="(spawnedByGroup.jobsToBeDoneCount, 1); // Increase by one, so 'spawning group' will wait for 'newly added group' to finish
-		addGroupAsynchronous(group, threadNum); // Synchronized by jobsToBeDoneCount atomic variable
+		addGroupAsynchronous(group); // Synchronized by jobsToBeDoneCount atomic variable
 	}
 
 	/// Explicitly calls onFlushLogs on all threads
@@ -969,19 +966,21 @@ private:
 	}
 }
 
-/// Adding groups of jobs is faster and groups can have dependices between each other
+/// Adding groups of jobs is faster and groups can have dependencies between each other
 struct JobsGroup
 {
 public:
 	string name; /// Name of group
 	JobData[] jobs; /// Jobs to be executed by this group, jobs have to live as long as group lives
-	ThreadPool* thPool; /// Thread pool of this group
 	void delegate(JobsGroup* group) onFinish; // Delegate called when group will finish, can be used to free memory
+	ThreadPool* thPool; /// Thread pool of this group
+	int executeOnThreadNum = -1; /// Thread num to execute jobs on
 
-	this(string name, JobData[] jobs = [])
+	this(string name, JobData[] jobs = [], int executeOnThreadNum = -1)
 	{
 		this.name = name;
 		this.jobs = jobs;
+		this.executeOnThreadNum = executeOnThreadNum;
 		jobsToBeDoneCount = 0;
 	}
 
@@ -992,7 +991,7 @@ public:
 	}
 
 	/// Make this group dependant from another group
-	/// Dependant group won't start untill its dependices will be fulfilled
+	/// Dependant group won't start untill its dependencies will be fulfilled
 	void dependantOn(JobsGroup* parent)
 	{
 		size_t newLen = parent.children.length + 1;
@@ -1001,13 +1000,19 @@ public:
 		parent.children = ptr[0 .. newLen];
 		parent.children[$ - 1] = &this;
 		// parent.children ~= &this;
-		atomicOp!"+="(dependicesWaitCount, 1);
+		atomicOp!"+="(dependenciesWaitCount, 1);
+	}
+
+	/// Returns number of dependencies this group is waiting for
+	int getDependenciesWaitCount()
+	{
+		return atomicLoad(dependenciesWaitCount);
 	}
 
 private:
 	JobsGroup* spawnedByGroup; /// Group which spawned this group, if present spwaning group is waiting for this group to finish
 	JobsGroup*[] children; /// Groups depending on this group
-	align(64) shared int dependicesWaitCount; /// Count of dependices this group waits for
+	align(64) shared int dependenciesWaitCount; /// Count of dependencies this group waits for
 	align(64) shared int jobsToBeDoneCount; /// Number of this group jobs still executing
 
 	/// Checks if depending groups or spawning group have to be started
@@ -1015,7 +1020,7 @@ private:
 	void onGroupFinish()
 	{
 
-		decrementChildrenDependices();
+		decrementChildrendependencies();
 		if (spawnedByGroup)
 		{
 			auto num = atomicOp!"-="(spawnedByGroup.jobsToBeDoneCount, 1);
@@ -1028,16 +1033,16 @@ private:
 			onFinish(&this);
 	}
 
-	/// Check if decrement dependices counter and start them if theirs dependices are fulfilled
-	void decrementChildrenDependices()
+	/// Check if decrement dependencies counter and start them if theirs dependencies are fulfilled
+	void decrementChildrendependencies()
 	{
 		foreach (JobsGroup* group; children)
 		{
-			auto num = atomicOp!"-="(group.dependicesWaitCount, 1);
+			auto num = atomicOp!"-="(group.dependenciesWaitCount, 1);
 			assert(num >= 0);
 			if (num == 0)
 			{
-				thPool.addGroupAsynchronous(group); // All dependices of this group are fulfilled, so is already synchronized
+				thPool.addGroupAsynchronous(group); // All dependencies of this group are fulfilled, so is already synchronized
 			}
 		}
 	}
@@ -1311,13 +1316,14 @@ version (D_BetterC)
 }
 else
 {
-	int main() // extern (C) int main(int argc, char*[] argv) // for betterC
+	int main()
 	{
 		testThreadPool();
 		return 0;
 	}
 }
 // Compile
+// -fsanitize=address
 // rdmd -g -of=thread_pool src/mmutils/thread_pool.d && ./thread_pool
 // ldmd2 -release -inline -checkaction=C -g -of=thread_pool src/mmutils/thread_pool.d && ./thread_pool
 // ldmd2 -checkaction=C -g -of=thread_pool src/mmutils/thread_pool.d && ./thread_pool
