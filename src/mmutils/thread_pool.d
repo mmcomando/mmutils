@@ -1166,9 +1166,68 @@ void testThreadPool()
 		// 1 - Number of jobs of this kind in frame
 		void startFrame(ThreadData* threadData, JobData* startFrameJobData)
 		{
-			startFrameJobData.del = &continueFrameInOtherJob;
-			startFrameJobData.name = "cont frm";
+			startFrameJobData.del = &continueFrameInOtherJobAAA;
+			startFrameJobData.name = "cont frmAAA";
 			thPool.addJobAsynchronous(startFrameJobData, thPool.threadsNum - 1); /// startFrame is the only job in thread pool no synchronization is required
+		}
+
+		void continueFrameInOtherJobAAA(ThreadData* threadData, JobData* startFrameJobData)
+		{
+
+			static struct JobGroupMemory
+			{
+				JobsGroup[6] groups;
+				JobData[1][6] groupsJobs;
+				TestApp* app;
+				JobData* startFrameJobData;
+
+				void spawnCont(JobsGroup* group)
+				{
+					// startFrameJobData.del = &continueFrameInOtherJob;
+					startFrameJobData.del = &app.finishFrame;
+					startFrameJobData.name = "cont frm";
+					group.thPool.addJobAsynchronous(startFrameJobData); /// startFrame is the only job in thread pool no synchronization is required
+
+				}
+			}
+
+			JobGroupMemory* memory = makeVar!JobGroupMemory();
+			memory.app = &this;
+			memory.startFrameJobData = startFrameJobData;
+
+			with (memory)
+			{
+				groups[0] = JobsGroup("dependant 0", groupsJobs[0]);
+				groups[1] = JobsGroup("dependant 1", groupsJobs[1]);
+				groups[2] = JobsGroup("dependant 2", groupsJobs[2]);
+				groups[3] = JobsGroup("dependant 3", groupsJobs[3]);
+				groups[4] = JobsGroup("dependant 4", groupsJobs[4]);
+				groups[5] = JobsGroup("dependant 5", groupsJobs[5]);
+				groups[5].onFinish = &spawnCont;
+
+				groups[2].dependantOn(&groups[0]);
+				groups[2].dependantOn(&groups[1]);
+
+				groups[3].dependantOn(&groups[0]);
+				groups[3].dependantOn(&groups[1]);
+				groups[3].dependantOn(&groups[2]);
+
+				groups[4].dependantOn(&groups[1]);
+				groups[4].dependantOn(&groups[3]);
+
+				groups[5].dependantOn(&groups[0]);
+				groups[5].dependantOn(&groups[1]);
+				groups[5].dependantOn(&groups[2]);
+				groups[5].dependantOn(&groups[3]);
+				groups[5].dependantOn(&groups[4]);
+
+				foreach (ref jobs; groupsJobs)
+					foreach (ref j; jobs)
+						j = JobData(&this.importantTaskSubTask, "n");
+
+				thPool.addGroupAsynchronous(&groups[0]);
+				thPool.addGroupAsynchronous(&groups[1]);
+			}
 		}
 
 		// Job for some big system
@@ -1241,7 +1300,6 @@ void testThreadPool()
 		// jobsNum * 128 - Number of jobs of this kind in frame
 		void importantTaskSubTask(ThreadData* threadData, JobData* data)
 		{
-
 		}
 
 		// Finish frame
@@ -1291,7 +1349,7 @@ void testThreadPool()
 				(end - start) / 1000.0f, thPool.jobsDoneCount / ((end - start) / 1000.0f));
 	}
 
-	// while (1)
+	while (1)
 	{
 		// foreach (i; 1 .. 32)
 		// 	testThreadsNum(i);
