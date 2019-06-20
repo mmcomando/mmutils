@@ -5,4 +5,4 @@ d:
   - ldc
 
 script:
-  DMD -g -of=thread_pool src/mmutils/thread_pool.d && ./thread_pool
+  $DMD -g -of=thread_pool src/mmutils/thread_pool.d && ./thread_pool
