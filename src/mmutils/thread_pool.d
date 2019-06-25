@@ -64,6 +64,7 @@ T[] makeVarArray(T)(int num, T init = T.init)
 
 void disposeVar(T)(T* var)
 {
+	destroy(*var);
 	free(var);
 }
 
@@ -1187,7 +1188,7 @@ void testThreadPool()
 					startFrameJobData.del = &app.finishFrame;
 					startFrameJobData.name = "cont frm";
 					group.thPool.addJobAsynchronous(startFrameJobData); /// startFrame is the only job in thread pool no synchronization is required
-
+					disposeVar!(JobGroupMemory)(&this);
 				}
 			}
 
