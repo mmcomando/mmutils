@@ -10,7 +10,7 @@ jobs:
       script: $DMD -g -of=thread_pool src/mmutils/thread_pool.d
     - stage: test
       script: ./thread_pool
-    - stage: deploy:
+    - stage: deploy
       local_dir: ./docs
       provider: pages
       skip_cleanup: true
