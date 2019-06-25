@@ -1,0 +1,8 @@
+language: d
+d:
+  - dmd
+  - dmd-2.075.0
+  - ldc
+
+script:
+  $DMD -g -of=thread_pool src/mmutils/thread_pool.d && ./thread_pool

@@ -1350,7 +1350,7 @@ void testThreadPool()
 				(end - start) / 1000.0f, thPool.jobsDoneCount / ((end - start) / 1000.0f));
 	}
 
-	while (1)
+	//while (1)
 	{
 		// foreach (i; 1 .. 32)
 		// 	testThreadsNum(i);
