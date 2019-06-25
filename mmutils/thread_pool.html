@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8"/>
+		<title>Module mmutils.thread_pool</title>
+		<link rel="stylesheet" type="text/css" href="../styles/ddox.css"/>
+		<link rel="stylesheet" href="../prettify/prettify.css" type="text/css"/>
+		<script type="text/javascript" src="../scripts/jquery.js">/**/</script><script type="text/javascript" src="../scripts/ddox.js">/**/</script>
+	</head>
+	<body onload="setupDdox();">
+		<nav id="main-nav">
+			<noscript>
+				<p style="color: red">The search functionality needs JavaScript enabled</p>
+			</noscript>
+			<div id="symbolSearchPane" style="display: none">
+				<form action="#" method="GET">
+					<input id="symbolSearch" type="text" name="q" placeholder="Search for symbols" autocomplete="off" onchange="performSymbolSearch(40);" onkeypress="this.onchange();" onpaste="this.onchange();" oninput="this.onchange();"/>
+				</form>
+				<ul id="symbolSearchResults" class="symbolList" style="display: none"></ul><script type="application/javascript" src="../symbols.js"></script><script type="application/javascript">var symbolSearchRootDir = "../";
+$('#symbolSearchPane').show();</script>
+			</div>
+			<ul class="tree-view">
+				<li class="tree-view ">
+					<div class="package ">mmutils
+					</div>
+			<ul class="tree-view">
+				<li>
+					<div class="module selected">
+						<a href="../mmutils/thread_pool.html">thread_pool</a>
+					</div>
+				</li>
+			</ul>
+				</li>
+			</ul>
+		</nav>
+		<div id="main-contents">
+			<h1>Module mmutils.thread_pool</h1><p>Thread Pool implementation using callbacks
+</p>
+			<section></section>
+			<section>
+				<h2>Functions</h2>
+				<table>
+					<col class="caption"/>
+					<tr>
+						<th>Name</th><th>Description</th>
+					</tr>
+					<tr>
+						<td>
+							<code>
+								<a id="instructionPause" class="public" href="../mmutils/thread_pool/instructionPause.html">instructionPause</a><span class="decoration">()</span>
+							</code>
+						</td>
+						<td>Pause ///////////////////
+</td>
+					</tr>
+					<tr>
+						<td>
+							<code>
+								<a id="makeVar" class="public" href="../mmutils/thread_pool/makeVar.html">makeVar</a><span class="decoration">(init)</span>
+							</code>
+						</td>
+						<td>Alloc ///////////////////
+</td>
+					</tr>
+					<tr>
+						<td>
+							<code>
+								<a id="testThreadPool" class="public" href="../mmutils/thread_pool/testThreadPool.html">testThreadPool</a><span class="decoration">()</span>
+							</code>
+						</td>
+						<td>Test ////////////////////
+</td>
+					</tr>
+					<tr>
+						<td>
+							<code>
+								<a id="useconds" class="public" href="../mmutils/thread_pool/useconds.html">useconds</a><span class="decoration">()</span>
+							</code>
+						</td>
+						<td>Timer ///////////////////
+</td>
+					</tr>
+				</table>
+			</section>
+			<section>
+				<h2>Structs</h2>
+				<table>
+					<col class="caption"/>
+					<tr>
+						<th>Name</th><th>Description</th>
+					</tr>
+					<tr>
+						<td>
+							<code>
+								<a id="JobData" class="public" href="../mmutils/thread_pool/JobData.html">JobData</a>
+							</code>
+						</td>
+						<td>Structure containing job data
+JobData memory is allocated by user
+JobData lifetime is managed by user
+JobData has to live as long as it's group or end of job execution
+JobData fields can be changed in del delegate and job can be added to thread pool again, to continue execution (call same function again or another if del was changed)
+</td>
+					</tr>
+					<tr>
+						<td>
+							<code>
+								<a id="JobQueue" class="public" href="../mmutils/thread_pool/JobQueue.html">JobQueue</a>
+							</code>
+						</td>
+						<td>First in first out queue with atomic lock
+</td>
+					</tr>
+					<tr>
+						<td>
+							<code>
+								<a id="JobsGroup" class="public" href="../mmutils/thread_pool/JobsGroup.html">JobsGroup</a>
+							</code>
+						</td>
+						<td>Adding groups of jobs is faster and groups can have dependencies between each other
+</td>
+					</tr>
+					<tr>
+						<td>
+							<code>
+								<a id="Semaphore" class="public" href="../mmutils/thread_pool/Semaphore.html">Semaphore</a>
+							</code>
+						</td>
+						<td>Semaphore + Thread /////////////
+</td>
+					</tr>
+					<tr>
+						<td>
+							<code>
+								<a id="Thread" class="public" href="../mmutils/thread_pool/Thread.html">Thread</a>
+							</code>
+						</td>
+						<td>Semaphore + Thread /////////////
+</td>
+					</tr>
+					<tr>
+						<td>
+							<code>
+								<a id="ThreadData" class="public" href="../mmutils/thread_pool/ThreadData.html">ThreadData</a>
+							</code>
+						</td>
+						<td>Structure responsible for thread in thread pool
+Stores jobs to be executed by this thread (jobs can be stolen by another thread)
+Stores cache for logs
+</td>
+					</tr>
+					<tr>
+						<td>
+							<code>
+								<a id="ThreadPool" class="public" href="../mmutils/thread_pool/ThreadPool.html">ThreadPool</a>
+							</code>
+						</td>
+						<td>Thread Pool
+Manages bounch of threads to execute given jobs as quickly as possible
+There are no priorities beetween jobs. Jobs added to queues in same order as they are in slices, but due to job stealing and uneven speed of execution beetween threads jobs execution order is unspecified.
+Number of threads executing jobs can be dynamically changed in any time. Threads removed from execution will work until the end of the program but shouldn't accept new jobs.
+</td>
+					</tr>
+				</table>
+			</section>
+			<footer>
+				<table class="license-info">
+					<tr>
+						<th>Authors</th>
+						<td>
+							
+						</td>
+					</tr>
+					<tr>
+						<th>Copyright</th>
+						<td>
+							
+						</td>
+					</tr>
+					<tr>
+						<th>License</th>
+						<td>
+							
+						</td>
+					</tr>
+				</table>
+				<p class="faint">Generated using the DDOX documentation generator</p>
+			</footer>
+		</div>
+	</body>
+</html>

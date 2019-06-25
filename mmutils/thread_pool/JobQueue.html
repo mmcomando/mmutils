@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8"/>
+		<title>Struct JobQueue</title>
+		<link rel="stylesheet" type="text/css" href="../../styles/ddox.css"/>
+		<link rel="stylesheet" href="../../prettify/prettify.css" type="text/css"/>
+		<script type="text/javascript" src="../../scripts/jquery.js">/**/</script><script type="text/javascript" src="../../scripts/ddox.js">/**/</script>
+	</head>
+	<body onload="setupDdox();">
+		<nav id="main-nav">
+			<noscript>
+				<p style="color: red">The search functionality needs JavaScript enabled</p>
+			</noscript>
+			<div id="symbolSearchPane" style="display: none">
+				<form action="#" method="GET">
+					<input id="symbolSearch" type="text" name="q" placeholder="Search for symbols" autocomplete="off" onchange="performSymbolSearch(40);" onkeypress="this.onchange();" onpaste="this.onchange();" oninput="this.onchange();"/>
+				</form>
+				<ul id="symbolSearchResults" class="symbolList" style="display: none"></ul><script type="application/javascript" src="../../symbols.js"></script><script type="application/javascript">var symbolSearchRootDir = "../../";
+$('#symbolSearchPane').show();</script>
+			</div>
+			<ul class="tree-view">
+				<li class="tree-view ">
+					<div class="package ">mmutils
+					</div>
+			<ul class="tree-view">
+				<li>
+					<div class="module selected">
+						<a href="../../mmutils/thread_pool.html">thread_pool</a>
+					</div>
+				</li>
+			</ul>
+				</li>
+			</ul>
+		</nav>
+		<div id="main-contents">
+			<h1>Struct JobQueue</h1><p>First in first out queue with atomic lock
+</p>
+			<div class="prototype">
+				<code class="lang-d">
+					<div class="single-prototype">
+			<span class="kwd">struct</span> <span class="typ">JobQueue</span>
+			<span class="pun">;</span>
+					</div>
+				</code>
+			</div>
+			
+			<section><h2>Fields</h2>
+				<table>
+					<col class="caption"/>
+					<tr>
+						<th>Name</th><th>Type</th><th>Description</th>
+					</tr>
+					<tr>
+						<td>
+							<a href="../../mmutils/thread_pool/JobQueue.first.html" class="public"><code>first</code></a>
+						</td>
+						<td class="typecol"><code class="prettyprint lang-d"><a href="../../mmutils/thread_pool/JobData.html"><span class="typ">JobData</span></a><span class="pun">*</span></code></td><td>Fist element in list of Jobs
+</td>
+					</tr>
+					<tr>
+						<td>
+							<a href="../../mmutils/thread_pool/JobQueue.lock.html" class="public"><code>lock</code></a>
+						</td>
+						<td class="typecol"><code class="prettyprint lang-d"><span class="kwd">shared</span><span class="pun">(</span><span class="typ">long</span><span class="pun">)</span></code></td><td>Lock for accesing list of Jobs
+</td>
+					</tr>
+				</table>
+			</section>
+			<section><h2>Methods</h2>
+				<table>
+					<col class="caption"/>
+					<tr>
+						<th>Name</th><th>Description</th>
+					</tr>
+					<tr>
+						<td>
+							<a href="../../mmutils/thread_pool/JobQueue.add.html" class="public">
+								<code>add</code>
+							</a>
+						</td>
+						<td>Add job to queue
+</td>
+					</tr>
+					<tr>
+						<td>
+							<a href="../../mmutils/thread_pool/JobQueue.addRange.html" class="public">
+								<code>addRange</code>
+							</a>
+						</td>
+						<td>Add range of jobs to queue
+</td>
+					</tr>
+					<tr>
+						<td>
+							<a href="../../mmutils/thread_pool/JobQueue.empty.html" class="public">
+								<code>empty</code>
+							</a>
+						</td>
+						<td>Check if empty
+</td>
+					</tr>
+					<tr>
+						<td>
+							<a href="../../mmutils/thread_pool/JobQueue.emptyRaw.html" class="public">
+								<code>emptyRaw</code>
+							</a>
+						</td>
+						<td>Check if empty without locking, doesn't give guarantee that list is truly empty
+</td>
+					</tr>
+					<tr>
+						<td>
+							<a href="../../mmutils/thread_pool/JobQueue.pop.html" class="public">
+								<code>pop</code>
+							</a>
+						</td>
+						<td>Pop job from queue
+</td>
+					</tr>
+				</table>
+			</section>
+			
+			<footer>
+				<table class="license-info">
+					<tr>
+						<th>Authors</th>
+						<td>
+							
+						</td>
+					</tr>
+					<tr>
+						<th>Copyright</th>
+						<td>
+							
+						</td>
+					</tr>
+					<tr>
+						<th>License</th>
+						<td>
+							
+						</td>
+					</tr>
+				</table>
+				<p class="faint">Generated using the DDOX documentation generator</p>
+			</footer>
+		</div>
+	</body>
+</html>

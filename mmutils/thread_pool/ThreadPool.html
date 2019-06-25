@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8"/>
+		<title>Struct ThreadPool</title>
+		<link rel="stylesheet" type="text/css" href="../../styles/ddox.css"/>
+		<link rel="stylesheet" href="../../prettify/prettify.css" type="text/css"/>
+		<script type="text/javascript" src="../../scripts/jquery.js">/**/</script><script type="text/javascript" src="../../scripts/ddox.js">/**/</script>
+	</head>
+	<body onload="setupDdox();">
+		<nav id="main-nav">
+			<noscript>
+				<p style="color: red">The search functionality needs JavaScript enabled</p>
+			</noscript>
+			<div id="symbolSearchPane" style="display: none">
+				<form action="#" method="GET">
+					<input id="symbolSearch" type="text" name="q" placeholder="Search for symbols" autocomplete="off" onchange="performSymbolSearch(40);" onkeypress="this.onchange();" onpaste="this.onchange();" oninput="this.onchange();"/>
+				</form>
+				<ul id="symbolSearchResults" class="symbolList" style="display: none"></ul><script type="application/javascript" src="../../symbols.js"></script><script type="application/javascript">var symbolSearchRootDir = "../../";
+$('#symbolSearchPane').show();</script>
+			</div>
+			<ul class="tree-view">
+				<li class="tree-view ">
+					<div class="package ">mmutils
+					</div>
+			<ul class="tree-view">
+				<li>
+					<div class="module selected">
+						<a href="../../mmutils/thread_pool.html">thread_pool</a>
+					</div>
+				</li>
+			</ul>
+				</li>
+			</ul>
+		</nav>
+		<div id="main-contents">
+			<h1>Struct ThreadPool</h1><p>Thread Pool
+Manages bounch of threads to execute given jobs as quickly as possible
+There are no priorities beetween jobs. Jobs added to queues in same order as they are in slices, but due to job stealing and uneven speed of execution beetween threads jobs execution order is unspecified.
+Number of threads executing jobs can be dynamically changed in any time. Threads removed from execution will work until the end of the program but shouldn't accept new jobs.
+</p>
+			<div class="prototype">
+				<code class="lang-d">
+					<div class="single-prototype">
+			<span class="kwd">struct</span> <span class="typ">ThreadPool</span>
+			<span class="pun">;</span>
+					</div>
+				</code>
+			</div>
+			
+			<section><h2>Fields</h2>
+				<table>
+					<col class="caption"/>
+					<tr>
+						<th>Name</th><th>Type</th><th>Description</th>
+					</tr>
+					<tr>
+						<td>
+							<a href="../../mmutils/thread_pool/ThreadPool.logsCacheNum.html" class="public"><code>logsCacheNum</code></a>
+						</td>
+						<td class="typecol"><code class="prettyprint lang-d"><span class="typ">int</span></code></td><td>Number of log cache entries. Should be set before setThreadsNum is called
+</td>
+					</tr>
+					<tr>
+						<td>
+							<a href="../../mmutils/thread_pool/ThreadPool.onFlushLogs.html" class="public"><code>onFlushLogs</code></a>
+						</td>
+						<td class="typecol"><code class="prettyprint lang-d"><span class="typ">void</span> <span class="kwd">delegate</span><span class="pun">(</span><a href="../../mmutils/thread_pool/ThreadData.html"><span class="typ">ThreadData</span></a><span class="pun">*</span><span class="pun">, </span><span class="pln">mmutils<wbr/></span><span class="pun">.</span><span class="pln">thread_pool<wbr/></span><span class="pun">.</span><span class="typ">JobLog</span><span class="pun">[]</span><span class="pun">)</span></code></td><td>User custom delegate to flush logs, if overriden defaultFlushLogs will be used. Can be sset after initialize() call
+</td>
+					</tr>
+				</table>
+			</section>
+			<section><h2>Methods</h2>
+				<table>
+					<col class="caption"/>
+					<tr>
+						<th>Name</th><th>Description</th>
+					</tr>
+					<tr>
+						<td>
+							<a href="../../mmutils/thread_pool/ThreadPool.addGroup.html" class="public">
+								<code>addGroup</code>
+							</a>
+						</td>
+						<td>Adds group of jobs to threadPool
+Spwaning group will finish after this group have finished
+</td>
+					</tr>
+					<tr>
+						<td>
+							<a href="../../mmutils/thread_pool/ThreadPool.addGroupAsynchronous.html" class="public">
+								<code>addGroupAsynchronous</code>
+							</a>
+						</td>
+						<td>Adds group of jobs to threadPool, group won't be synchronized
+</td>
+					</tr>
+					<tr>
+						<td>
+							<a href="../../mmutils/thread_pool/ThreadPool.addJob.html" class="public">
+								<code>addJob</code>
+							</a>
+						</td>
+						<td>Adds job to be executed by thread pool, group specified in group data won't be finished until this job ends
+If threadNum is different than -1 only thread with threadNum will be able to execute given job
+</td>
+					</tr>
+					<tr>
+						<td>
+							<a href="../../mmutils/thread_pool/ThreadPool.addJobAsynchronous.html" class="public">
+								<code>addJobAsynchronous</code>
+							</a>
+						</td>
+						<td>Adds job to be executed by thread pool, such a job won't be synchronized with any group or job
+If threadNum is different than -1 only thread with threadNum will be able to execute given job
+It is advised to use synchronized group of jobs
+</td>
+					</tr>
+					<tr>
+						<td>
+							<a href="../../mmutils/thread_pool/ThreadPool.addJobsRange.html" class="public">
+								<code>addJobsRange</code>
+							</a>
+						</td>
+						<td>Adds multiple jobs at once
+Range has to return JobData*
+Range has to have length property
+Range is used so there is no need to allocate JobData*[]
+All jobs has to belong to one group
+If threadNum is different than -1 only thread with threadNum will be able to execute given jobs
+</td>
+					</tr>
+					<tr>
+						<td>
+							<a href="../../mmutils/thread_pool/ThreadPool.defaultFlushLogs.html" class="public">
+								<code>defaultFlushLogs</code>
+							</a>
+						</td>
+						<td>Default implementation of flushing logs
+Saves logs to trace.json file in format acceptable by Google Chrome tracking tool chrome://tracing/
+Logs can be watched even if apllication crashed, but might require removing last log entry from trace.json
+</td>
+					</tr>
+					<tr>
+						<td>
+							<a href="../../mmutils/thread_pool/ThreadPool.flushAllLogs.html" class="public">
+								<code>flushAllLogs</code>
+							</a>
+						</td>
+						<td>Explicitly calls onFlushLogs on all threads
+</td>
+					</tr>
+					<tr>
+						<td>
+							<a href="../../mmutils/thread_pool/ThreadPool.initialize.html" class="public">
+								<code>initialize</code>
+							</a>
+						</td>
+						<td>Initialize thread pool
+</td>
+					</tr>
+					<tr>
+						<td>
+							<a href="../../mmutils/thread_pool/ThreadPool.registerExternalThread.html" class="public">
+								<code>registerExternalThread</code>
+							</a>
+						</td>
+						<td>Registers external thread to thread pool array. There will be allocated data for this thread and it will have specified id
+External threads are not joined at the end of thread pool execution
+Returns ThreadData corresponding to external thread. To acually start executing, external thread had to call threadStartFunc() from returned variable
+</td>
+					</tr>
+					<tr>
+						<td>
+							<a href="../../mmutils/thread_pool/ThreadPool.releaseExternalThreads.html" class="public">
+								<code>releaseExternalThreads</code>
+							</a>
+						</td>
+						<td>Allows external threads to return from threadStartFunc
+</td>
+					</tr>
+					<tr>
+						<td>
+							<a href="../../mmutils/thread_pool/ThreadPool.setThreadsNum.html" class="public">
+								<code>setThreadsNum</code>
+							</a>
+						</td>
+						<td>Sets number of threads to accept new jobs
+If there were never so much threads created, they will be created
+If number of threads set is smaller than there was threads before, they are not joined but they stop getting new jobs, they stop stealing jobs and they sleep longer
+Locking operation
+</td>
+					</tr>
+					<tr>
+						<td>
+							<a href="../../mmutils/thread_pool/ThreadPool.unregistExternalThread.html" class="public">
+								<code>unregistExternalThread</code>
+							</a>
+						</td>
+						<td>Unregisters external thread. Can be called only when external thread have left the thread pool
+</td>
+					</tr>
+					<tr>
+						<td>
+							<a href="../../mmutils/thread_pool/ThreadPool.waitThreads.html" class="public">
+								<code>waitThreads</code>
+							</a>
+						</td>
+						<td>Waits for all threads to finish and joins them (excluding external threads)
+</td>
+					</tr>
+				</table>
+			</section>
+			<section><h2>Aliases</h2>
+				<table>
+					<col class="caption"/>
+					<tr>
+						<th>Name</th><th>Description</th>
+					</tr>
+					<tr>
+						<td>
+							<a href="../../mmutils/thread_pool/ThreadPool.FlushLogsDelegaste.html" class="public">
+								<code>FlushLogsDelegaste</code>
+							</a>
+						</td>
+						<td>Type of delegate to flush logs
+</td>
+					</tr>
+				</table>
+			</section>
+			
+			<footer>
+				<table class="license-info">
+					<tr>
+						<th>Authors</th>
+						<td>
+							
+						</td>
+					</tr>
+					<tr>
+						<th>Copyright</th>
+						<td>
+							
+						</td>
+					</tr>
+					<tr>
+						<th>License</th>
+						<td>
+							
+						</td>
+					</tr>
+				</table>
+				<p class="faint">Generated using the DDOX documentation generator</p>
+			</footer>
+		</div>
+	</body>
+</html>
