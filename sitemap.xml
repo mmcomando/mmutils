@@ -2,6 +2,9 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 <url><loc>http://127.0.0.1/index.html</loc></url>
 <url><loc>http://127.0.0.1/mmutils/thread_pool.html</loc></url>
+<url><loc>http://127.0.0.1/mmutils/thread_pool/_d_allocmemory.html</loc></url>
+<url><loc>http://127.0.0.1/mmutils/thread_pool/_d_eh_personality.html</loc></url>
+<url><loc>http://127.0.0.1/mmutils/thread_pool/_d_eh_resume_unwind.html</loc></url>
 <url><loc>http://127.0.0.1/mmutils/thread_pool/instructionPause.html</loc></url>
 <url><loc>http://127.0.0.1/mmutils/thread_pool/JobData.html</loc></url>
 <url><loc>http://127.0.0.1/mmutils/thread_pool/JobData.del.html</loc></url>
@@ -23,7 +26,9 @@
 <url><loc>http://127.0.0.1/mmutils/thread_pool/JobsGroup.thPool.html</loc></url>
 <url><loc>http://127.0.0.1/mmutils/thread_pool/makeVar.html</loc></url>
 <url><loc>http://127.0.0.1/mmutils/thread_pool/Semaphore.html</loc></url>
+<url><loc>http://127.0.0.1/mmutils/thread_pool/Semaphore.html</loc></url>
 <url><loc>http://127.0.0.1/mmutils/thread_pool/testThreadPool.html</loc></url>
+<url><loc>http://127.0.0.1/mmutils/thread_pool/Thread.html</loc></url>
 <url><loc>http://127.0.0.1/mmutils/thread_pool/Thread.html</loc></url>
 <url><loc>http://127.0.0.1/mmutils/thread_pool/ThreadData.html</loc></url>
 <url><loc>http://127.0.0.1/mmutils/thread_pool/ThreadData.threadId.html</loc></url>
@@ -46,5 +51,6 @@
 <url><loc>http://127.0.0.1/mmutils/thread_pool/ThreadPool.setThreadsNum.html</loc></url>
 <url><loc>http://127.0.0.1/mmutils/thread_pool/ThreadPool.unregistExternalThread.html</loc></url>
 <url><loc>http://127.0.0.1/mmutils/thread_pool/ThreadPool.waitThreads.html</loc></url>
+<url><loc>http://127.0.0.1/mmutils/thread_pool/threadRunFunc.html</loc></url>
 <url><loc>http://127.0.0.1/mmutils/thread_pool/useconds.html</loc></url>
 </urlset>
