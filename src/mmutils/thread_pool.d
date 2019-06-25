@@ -1,4 +1,7 @@
-﻿module mmutils.thread_pool;
+﻿/++
+ + Thread Pool implementation using callbacks
+ +/
+module mmutils.thread_pool;
 
 import core.atomic;
 import core.stdc.stdio;
