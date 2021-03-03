@@ -3,16 +3,24 @@
  +/
 module mmutils.thread_pool;
 
-import core.atomic;
-import core.stdc.stdio;
-import core.stdc.stdlib : free, malloc, realloc;
-import core.stdc.string : memcpy;
-
-import std.stdio;
 import std.algorithm : map;
 
 version = MM_NO_LOGS; // Disable log creation
-// version = MM_USE_POSIX_THREADS; // Use posix threads insted of standard library, required for betterC
+//version = MM_USE_POSIX_THREADS; // Use posix threads insted of standard library, required for betterC
+
+version (WebAssembly)
+{
+	version = MM_NO_LOGS;
+	version = MM_USE_POSIX_THREADS;
+	extern(C) struct FILE
+	{
+		
+	}
+}
+else 
+{
+	import core.stdc.stdio;
+}
 
 //////////////////////////////////////////////
 /////////////// BetterC Support //////////////
@@ -20,7 +28,15 @@ version = MM_NO_LOGS; // Disable log creation
 
 version (D_BetterC)
 {
-	extern (C) __gshared int _d_eh_personality(int, int, size_t, void*, void*)
+	version (Posix) version = MM_USE_POSIX_THREADS;
+
+    extern (C) void free(void*) @nogc nothrow @system;
+    extern (C) void* malloc(size_t size) @nogc nothrow @system;
+    extern (C) void* realloc(void*, size_t size) @nogc nothrow @system;
+    extern (C) void* memcpy(return void*, scope const void*, size_t size) @nogc nothrow @system;
+
+	//hacks for LDC
+	/*extern (C) __gshared int _d_eh_personality(int, int, size_t, void*, void*)
 	{
 		return 0;
 	}
@@ -33,12 +49,141 @@ version (D_BetterC)
 	extern (C) void* _d_allocmemory(size_t sz)
 	{
 		return malloc(sz);
-	}
+	}*/
+}
+else
+{
+	import core.stdc.stdlib;
+	import core.stdc.string;
 }
 
 //////////////////////////////////////////////
-//////////////////// Alloc ///////////////////
+/////////////// Atomics //////////////////////
 //////////////////////////////////////////////
+
+version (ECSEmscripten)
+{
+    import std.traits;
+
+    enum MemoryOrder
+    {
+        acq,
+        acq_rel,
+        raw,
+        rel,
+        seq
+    }
+
+    extern (C) ubyte emscripten_atomic_cas_u8(void* addr, ubyte oldVal, ubyte newVal) @nogc nothrow pure;
+    extern (C) ushort emscripten_atomic_cas_u16(void* addr, ushort oldVal, ushort newVal) @nogc nothrow pure;
+    extern (C) uint emscripten_atomic_cas_u32(void* addr, uint oldVal, uint newVal) @nogc nothrow pure;
+
+    extern (C) ubyte emscripten_atomic_load_u8(const void* addr) @nogc nothrow pure;
+    extern (C) ushort emscripten_atomic_load_u16(const void* addr) @nogc nothrow pure;
+    extern (C) uint emscripten_atomic_load_u32(const void* addr) @nogc nothrow pure;
+
+    extern (C) ubyte emscripten_atomic_store_u8(void* addr, ubyte val) @nogc nothrow pure;
+    extern (C) ushort emscripten_atomic_store_u16(void* addr, ushort val) @nogc nothrow pure;
+    extern (C) uint emscripten_atomic_store_u32(void* addr, uint val) @nogc nothrow pure;
+
+    extern (C) ubyte emscripten_atomic_add_u8(void* addr, ubyte val) @nogc nothrow pure;
+    extern (C) ushort emscripten_atomic_add_u16(void* addr, ushort val) @nogc nothrow pure;
+    extern (C) uint emscripten_atomic_add_u32(void* addr, uint val) @nogc nothrow pure;
+
+    extern (C) ubyte emscripten_atomic_sub_u8(void* addr, ubyte val) @nogc nothrow pure;
+    extern (C) ushort emscripten_atomic_sub_u16(void* addr, ushort val) @nogc nothrow pure;
+    extern (C) uint emscripten_atomic_sub_u32(void* addr, uint val) @nogc nothrow pure;
+
+    public pure nothrow @nogc Unqual!T atomicOp(string op, T, V1)(ref shared T val, V1 mod)
+    {
+        static if (op == "+=")
+        {
+            static if (is(T == byte) || is(T == ubyte))
+                return cast(Unqual!T)(emscripten_atomic_add_u8(cast(void*)&val,
+                        cast(Unqual!T) mod) + 1);
+            else static if (is(T == short) || is(T == ushort))
+                return cast(Unqual!T)(emscripten_atomic_add_u16(cast(void*)&val,
+                        cast(Unqual!T) mod) + 1);
+            else static if (is(T == int) || is(T == uint))
+                return cast(Unqual!T)(emscripten_atomic_add_u32(cast(void*)&val,
+                        cast(Unqual!T) mod) + 1);
+            else
+                static assert(0);
+        }
+        else static if (op == "-=")
+        {
+            static if (is(T == byte) || is(T == ubyte))
+                return cast(Unqual!T)(emscripten_atomic_sub_u8(cast(void*)&val,
+                        cast(Unqual!T) mod) - 1);
+            else static if (is(T == short) || is(T == ushort))
+                return cast(Unqual!T)(emscripten_atomic_sub_u16(cast(void*)&val,
+                        cast(Unqual!T) mod) - 1);
+            else static if (is(T == int) || is(T == uint))
+                return cast(Unqual!T)(emscripten_atomic_sub_u32(cast(void*)&val,
+                        cast(Unqual!T) mod) - 1);
+            else
+                static assert(0);
+        }
+    }
+
+    public pure nothrow @nogc @trusted void atomicStore(MemoryOrder ms = MemoryOrder.seq, T, V)(ref T val,
+            V newval)
+    {
+        alias UT = Unqual!T;
+        static if (is(UT == bool) || is(UT == byte) || is(UT == ubyte))
+            emscripten_atomic_store_u8(cast(void*)&val, cast(UT) newval);
+        else static if (is(UT == short) || is(UT == ushort))
+            emscripten_atomic_store_u16(cast(void*)&val, cast(UT) newval);
+        else static if (is(UT == int) || is(UT == uint))
+            emscripten_atomic_store_u32(cast(void*)&val, cast(UT) newval);
+        else
+            static assert(0);
+    }
+
+    public pure nothrow @nogc @trusted T atomicLoad(MemoryOrder ms = MemoryOrder.seq, T)(
+            ref const T val)
+    {
+        alias UT = Unqual!T;
+        static if (is(UT == bool))
+            return emscripten_atomic_load_u8(cast(const void*)&val) != 0;
+        else static if (is(UT == byte) || is(UT == ubyte))
+            return emscripten_atomic_load_u8(cast(const void*)&val);
+        else static if (is(UT == short) || is(UT == ushort))
+            return emscripten_atomic_load_u16(cast(const void*)&val);
+        else static if (is(UT == int) || is(UT == uint))
+            return emscripten_atomic_load_u32(cast(const void*)&val);
+        else
+            static assert(0);
+    }
+
+    public pure nothrow @nogc @trusted bool cas(MemoryOrder succ = MemoryOrder.seq,
+            MemoryOrder fail = MemoryOrder.seq, T, V1, V2)(T* here, V1 ifThis, V2 writeThis)
+    {
+        alias UT = Unqual!T;
+        static if (is(UT == bool))
+            return emscripten_atomic_cas_u8(cast(void*) here,
+                    cast(Unqual!T) ifThis, cast(Unqual!T) writeThis) == ifThis;
+        else static if (is(UT == byte) || is(UT == ubyte))
+            return emscripten_atomic_cas_u8(cast(void*) here,
+                    cast(Unqual!T) ifThis, cast(Unqual!T) writeThis) == ifThis;
+        else static if (is(UT == short) || is(UT == ushort))
+            return emscripten_atomic_cas_u16(cast(void*) here,
+                    cast(Unqual!T) ifThis, cast(Unqual!T) writeThis) == ifThis;
+        else static if (is(UT == int) || is(UT == uint))
+            return emscripten_atomic_cas_u32(cast(void*) here,
+                    cast(Unqual!T) ifThis, cast(Unqual!T) writeThis) == ifThis;
+        else
+            static assert(0);
+    }
+}
+else
+{
+    public import core.atomic;
+}
+
+//////////////////////////////////////////////////
+//////////////////// Allocator ///////////////////
+//////////////////////////////////////////////////
 T* makeVar(T)(T init)
 {
 	T* el = cast(T*) malloc(T.sizeof);
@@ -67,7 +212,6 @@ T[] makeVarArray(T)(int num, T init = T.init)
 
 void disposeVar(T)(T* var)
 {
-	destroy(*var);
 	free(var);
 }
 
@@ -79,10 +223,32 @@ void disposeArray(T)(T[] var)
 //////////////////// Timer ///////////////////
 //////////////////////////////////////////////
 
+version (WebAssembly)
+{
+	alias int time_t;
+	alias int clockid_t;
+	enum CLOCK_REALTIME = 0;
+
+	struct timespec
+	{
+		time_t  tv_sec;
+		int     tv_nsec;
+	}
+
+	extern(C) int clock_gettime(clockid_t, timespec*) @nogc nothrow @system;
+
+	extern(C) double emscripten_get_now() @nogc nothrow @system;
+
+}
+
 /// High precison timer
 long useconds()
 {
-	version (Posix)
+	version (WebAssembly)
+	{
+		return cast(long)(emscripten_get_now() * 1000.0); 
+	}
+	else version (Posix)
 	{
 		import core.sys.posix.sys.time : gettimeofday, timeval;
 
@@ -92,7 +258,8 @@ long useconds()
 	}
 	else version (Windows)
 	{
-		import core.sys.windows.windows : QueryPerformanceFrequency;
+		//TODO: implement timer on windows
+		/*import core.sys.windows.windows : QueryPerformanceFrequency;
 
 		__gshared double mul = -1;
 		if (mul < 0)
@@ -105,7 +272,8 @@ long useconds()
 		long ticks;
 		int ok = QueryPerformanceCounter(&ticks);
 		assert(ok);
-		return cast(long)(ticks * mul);
+		return cast(long)(ticks * mul);*/
+		return 0;
 	}
 	else
 	{
@@ -127,6 +295,12 @@ void instructionPause()
 
 			__builtin_ia32_pause();
 		}
+		else version(GNU)
+		{
+			import gcc.builtins;
+
+			__builtin_ia32_pause();
+		}
 		else version (DigitalMars)
 		{
 			asm
@@ -134,13 +308,43 @@ void instructionPause()
 				rep;
 				nop;
 			}
-
 		}
 		else
 		{
 			static assert(0);
 		}
 	}
+	else version (Android)
+	{
+		version(LDC)
+		{
+			import ldc.attributes;
+			@optStrategy("none")
+			static void nop()
+			{
+				int i;
+				i++;
+			}
+			nop();
+		}
+		else static assert(0);
+	}
+	else version(WebAssembly)
+	{
+		version(LDC)
+		{
+			import ldc.attributes;
+			@optStrategy("none")
+			static void nop()
+			{
+				int i;
+				i++;
+}
+			nop();
+		}
+		else static assert(0);
+	}
+	else static assert(0);
 }
 
 //////////////////////////////////////////////
@@ -149,7 +353,42 @@ void instructionPause()
 
 version (MM_USE_POSIX_THREADS)
 {
-	version (Posix)
+	version (WebAssembly)
+	{
+		extern(C):
+		
+		struct pthread_attr_t 
+		{
+			union 
+			{
+				int[10] __i;
+				uint[10] __s;
+		}
+		}
+	
+		struct pthread_t
+		{
+			void* p;
+			uint x;
+		}
+
+		// pthread
+		int pthread_create(pthread_t*, in pthread_attr_t*, void* function(void*), void*);
+		int pthread_join(pthread_t, void**);
+		void pthread_exit(void *retval);
+
+		struct sem_t
+		{
+			shared int[4] __val;
+		}
+		int sem_init(sem_t*, int, uint);
+		int sem_wait(sem_t*);
+		int sem_trywait(sem_t*);
+		int sem_post(sem_t*);
+		int sem_destroy(sem_t*);
+		int sem_timedwait(sem_t* sem, const timespec* abstime);
+	}
+	else version (Posix)
 	{
 		import core.sys.posix.pthread;
 		import core.sys.posix.semaphore;
@@ -157,6 +396,12 @@ version (MM_USE_POSIX_THREADS)
 	else version (Windows)
 	{
 	extern (C):
+		alias uint time_t;
+		struct pthread_attr_t 
+		{
+
+		}
+	
 		struct pthread_t
 		{
 			void* p;
@@ -165,13 +410,14 @@ version (MM_USE_POSIX_THREADS)
 
 		struct timespec
 		{
-			time_t a;
-			int b;
+			time_t tv_sec;
+			int tv_nsec;
 		}
 
 		// pthread
 		int pthread_create(pthread_t*, in pthread_attr_t*, void* function(void*), void*);
 		int pthread_join(pthread_t, void**);
+		void pthread_exit(void *retval);
 
 		// semaphore.h
 		alias sem_t = void*;
@@ -204,7 +450,6 @@ version (MM_USE_POSIX_THREADS)
 
 		bool tryWait()
 		{
-			//return true;
 			int ret = sem_trywait(&mutex);
 			return (ret == 0);
 		}
@@ -224,7 +469,7 @@ version (MM_USE_POSIX_THREADS)
 		void post()
 		{
 			int ret = sem_post(&mutex);
-			assert(ret == 0);
+			assert(ret >= 0);
 		}
 
 		void destroy()
@@ -253,8 +498,9 @@ version (MM_USE_POSIX_THREADS)
 		void start(DG dg)
 		{
 			threadStart = dg;
-			int ok = pthread_create(&handle, null, &threadRunFunc, cast(void*)&this);
-			assert(ok == 0);
+			int err = pthread_create(&handle, null, &threadRunFunc, cast(void*)&this);
+			if(err)handle = pthread_t();
+			//assert(ok == 0);
 		}
 
 		void join()
@@ -263,6 +509,118 @@ version (MM_USE_POSIX_THREADS)
 			handle = handle.init;
 			threadStart = null;
 		}
+	}
+}
+else version(D_BetterC)
+{
+	version(Windows)
+	{
+		import core.stdc.stdint : uintptr_t;
+		import core.sys.windows.windows;
+		extern (Windows) alias btex_fptr = uint function(void*);
+		extern (C) uintptr_t _beginthreadex(void*, uint, btex_fptr, void*, uint, uint*) nothrow @nogc;
+
+		struct Semaphore
+		{
+			HANDLE handle;
+
+			void initialize()
+			{
+				handle = CreateSemaphoreA( null, 0, int.max, null );
+            	assert ( handle != handle.init );
+                //throw new SyncError( "Unable to create semaphore" );
+			}
+
+			void wait()
+			{
+				DWORD rc = WaitForSingleObject( handle, INFINITE );
+				//int ret = sem_wait(&mutex);
+				assert(rc == WAIT_OBJECT_0);
+			}
+
+			bool tryWait()
+			{
+				switch ( WaitForSingleObject( handle, 0 ) )
+				{
+				case WAIT_OBJECT_0:
+					return true;
+				case WAIT_TIMEOUT:
+					return false;
+				default:
+					assert(0);//throw new SyncError( "Unable to wait for semaphore" );
+				}
+			}
+
+			bool timedWait(int usecs)
+			{
+				/*timespec tv;
+				// if there is no such a function look at it: https://stackoverflow.com/questions/5404277/porting-clock-gettime-to-windows
+				clock_gettime(CLOCK_REALTIME, &tv);
+				tv.tv_sec += usecs / 1_000_000;
+				tv.tv_nsec += (usecs % 1_000_000) * 1_000;
+
+				int ret = sem_timedwait(&mutex, &tv);
+				return (ret == 0);*/
+
+				switch ( WaitForSingleObject( handle, cast(uint) usecs / 1000 ) )
+				{
+				case WAIT_OBJECT_0:
+					return true;
+				case WAIT_TIMEOUT:
+					return false;
+				default:
+					assert(0, "Unable to wait for semaphore" );
+				}
+			}
+
+			void post()
+			{
+				assert(ReleaseSemaphore( handle, 1, null ));
+			}
+
+			void destroy()
+			{
+				BOOL rc = CloseHandle( handle );
+            	assert( rc, "Unable to destroy semaphore" );
+			}
+		}
+
+		private extern (Windows) uint threadRunFunc(void* threadVoid)
+		{
+			Thread* th = cast(Thread*) threadVoid;
+
+			th.threadStart();
+
+			ExitThread(0);
+			return 0;
+		}
+
+		struct Thread
+		{
+			alias DG = void delegate();
+
+			DG threadStart;
+			HANDLE handle;
+
+			void start(DG dg)
+			{
+				threadStart = dg;
+				handle = cast(HANDLE) _beginthreadex( null, 0, &threadRunFunc, cast(void*)&this, 0, null );
+			}
+
+			void join()
+			{
+				if ( WaitForSingleObject( handle, INFINITE ) == WAIT_OBJECT_0 )assert(0);
+				CloseHandle( handle );
+
+				handle = handle.init;
+				threadStart = null;
+			}
+		}
+	}
+	else 
+	{
+		static assert(0, "Platform is unsupported in betterC mode!");
 	}
 }
 else
@@ -332,7 +690,7 @@ else
 ///////////////// ThreadPool /////////////////
 //////////////////////////////////////////////
 
-private enum gMaxThreadsNum = 128;
+private enum gMaxThreadsNum = 64;
 
 alias JobDelegate = void delegate(ThreadData*, JobData*);
 
@@ -347,7 +705,7 @@ struct JobLog
 /// First in first out queue with atomic lock
 struct JobQueue
 {
-	alias LockType = long;
+	alias LockType = int;
 	align(64) shared LockType lock; /// Lock for accesing list of Jobs
 	align(64) JobData* first; /// Fist element in list of Jobs
 
@@ -450,7 +808,7 @@ public:
 	/// External threads can call this function to start executing jobs
 	void threadStartFunc()
 	{
-		end = false;
+		//end = false;
 		threadFunc(&this);
 	}
 
@@ -478,6 +836,7 @@ struct ThreadPool
 	alias FlushLogsDelegaste = void delegate(ThreadData* threadData, JobLog[] logs); /// Type of delegate to flush logs
 	FlushLogsDelegaste onFlushLogs; /// User custom delegate to flush logs, if overriden defaultFlushLogs will be used. Can be sset after initialize() call
 	int logsCacheNum; /// Number of log cache entries. Should be set before setThreadsNum is called
+	int tryWaitCount = 2000; ///Number of times which tryWait are called before timedWait call. Higher value sets better response but takes CPU time even if there are no jobs.
 private:
 	ThreadData*[gMaxThreadsNum] threadsData; /// Data for threads
 	align(64) shared int threadsNum; /// Number of threads currentlu accepting jobs
@@ -487,6 +846,46 @@ private:
 	JobData[4] resumeJobs; /// Dummu jobs to resume some thread
 
 public:
+
+	static int getCPUCoresCount()
+	{
+		version(Windows)
+		{
+			import core.sys.windows.winbase : SYSTEM_INFO, GetSystemInfo;
+			SYSTEM_INFO sysinfo;
+			GetSystemInfo(&sysinfo);
+			return sysinfo.dwNumberOfProcessors;
+		}
+		else version (linux)
+		{
+			version(D_BetterC)
+			{
+				import core.sys.posix.unistd : _SC_NPROCESSORS_ONLN, sysconf;
+				return cast(int)sysconf(_SC_NPROCESSORS_ONLN);
+			}
+			else
+			{
+				import core.sys.linux.sched : CPU_COUNT, cpu_set_t, sched_getaffinity;
+				import core.sys.posix.unistd : _SC_NPROCESSORS_ONLN, sysconf;
+
+				cpu_set_t set = void;
+				if (sched_getaffinity(0, cpu_set_t.sizeof, &set) == 0)
+				{
+					int count = CPU_COUNT(&set);
+					if (count > 0)
+						return cast(uint) count;
+				}
+				return cast(int)sysconf(_SC_NPROCESSORS_ONLN);
+			}
+		}
+		else version(Posix)
+		{
+			import core.sys.posix.unistd;
+    		return cast(int)sysconf(_SC_NPROCESSORS_ONLN);
+		}
+		else return -1;
+	}
+
 	int jobsDoneCount()
 	{
 		int sum;
@@ -536,11 +935,16 @@ public:
 	/// Clean ups ThreadPool
 	~this()
 	{
-		if (logFile)
+		version (MM_NO_LOGS)
+		{
+
+		}
+		else if (logFile)
 		{
 			fclose(logFile);
 			logFile = null;
 		}
+		
 
 	}
 
@@ -550,20 +954,23 @@ public:
 	ThreadData* registerExternalThread()
 	{
 		lockThreadsData();
-		scope (exit)
-			unlockThreadsData();
+		//scope (exit)
+			
 
 		ThreadData* threadData = makeThreadData();
 		threadData.threadPool = &this;
 		threadData.semaphore.initialize();
 		threadData.externalThread = true;
-		threadData.acceptJobs = true;
+		atomicStore(threadData.acceptJobs, true);
+		//threadData.acceptJobs = true;
 
 		int threadNum = atomicOp!"+="(threadsNum, 1) - 1;
 
 		threadData.threadId = threadNum;
 
 		threadsData[threadNum] = threadData;
+
+		unlockThreadsData();
 
 		return threadData;
 	}
@@ -572,18 +979,19 @@ public:
 	void unregistExternalThread(ThreadData* threadData)
 	{
 		lockThreadsData();
-		scope (exit)
-			unlockThreadsData();
+		//scope (exit)
+		//	unlockThreadsData();
 
 		disposeThreadData(threadData);
+		unlockThreadsData();
 	}
 
 	/// Allows external threads to return from threadStartFunc
 	void releaseExternalThreads()
 	{
 		lockThreadsData();
-		scope (exit)
-			unlockThreadsData();
+		//scope (exit)
+		//	unlockThreadsData();
 
 		// Release external threads (including main thread)
 		foreach (i, ref ThreadData* th; threadsData)
@@ -597,14 +1005,15 @@ public:
 			addJobsRange(rng, cast(int) i);
 			atomicStore(th.end, true);
 		}
+		unlockThreadsData();
 	}
 
 	/// Waits for all threads to finish and joins them (excluding external threads)
 	void waitThreads()
 	{
 		lockThreadsData();
-		scope (exit)
-			unlockThreadsData();
+		//scope (exit)
+		//	unlockThreadsData();
 		foreach (i, ref ThreadData* th; threadsData)
 		{
 			if (th is null)
@@ -621,6 +1030,7 @@ public:
 			th.thread.join();
 			disposeThreadData(th);
 		}
+		unlockThreadsData();
 	}
 
 	/// Sets number of threads to accept new jobs
@@ -633,8 +1043,8 @@ public:
 		assert(num > 0);
 
 		lockThreadsData();
-		scope (exit)
-			unlockThreadsData();
+		//scope (exit)
+		//	unlockThreadsData();
 
 		foreach (i, ref ThreadData* th; threadsData)
 		{
@@ -653,14 +1063,15 @@ public:
 			th = makeThreadData();
 			th.threadPool = &this;
 			th.threadId = cast(int) i;
-			th.acceptJobs = true;
+			atomicStore(th.acceptJobs, true);
+			//th.acceptJobs = true;
 			th.semaphore.initialize();
 
 			th.thread.start(&th.threadStartFunc);
 		}
 
 		atomicStore(threadsNum, num);
-
+		unlockThreadsData();
 	}
 
 	/// Adds job to be executed by thread pool, such a job won't be synchronized with any group or job
@@ -718,8 +1129,9 @@ public:
 		{
 			assert(rng[0].group == threadData.group);
 		}
+		
 		atomicOp!"+="(rng[0].group.jobsToBeDoneCount, cast(int) rng.length);
-		int threadsNumLocal = threadsNum;
+		int threadsNumLocal = atomicLoad(threadsNum);
 		int part = cast(int) rng.length / threadsNumLocal;
 		if (part > 0)
 		{
@@ -746,13 +1158,13 @@ public:
 	void addGroupAsynchronous(JobsGroup* group)
 	{
 		group.thPool = &this;
+		
 		if (group.jobs.length == 0)
 		{
 			// Immediately call group end
 			group.onGroupFinish();
 			return;
 		}
-
 		group.setUpJobs();
 		auto rng = group.jobs[].map!((ref a) => &a);
 		addJobsRange(rng, group.executeOnThreadNum);
@@ -772,8 +1184,8 @@ public:
 	void flushAllLogs()
 	{
 		lockThreadsData();
-		scope (exit)
-			unlockThreadsData();
+		//scope (exit)
+		//	unlockThreadsData();
 		foreach (thNum; 0 .. atomicLoad(threadsNum))
 		{
 			ThreadData* th = threadsData[thNum];
@@ -787,6 +1199,7 @@ public:
 
 			onThreadFlushLogs(th);
 		}
+		unlockThreadsData();
 	}
 
 	/// Default implementation of flushing logs
@@ -794,33 +1207,41 @@ public:
 	/// Logs can be watched even if apllication crashed, but might require removing last log entry from trace.json
 	void defaultFlushLogs(ThreadData* threadData, JobLog[] logs)
 	{
-		// (log rows num) * (static json length * time length * duration length)
-		long start = useconds();
-		size_t size = (logs.length + 1) * (128 + 20 + 20);
-		size_t used = 0;
-
-		foreach (ref log; logs)
+		version (MM_NO_LOGS)
 		{
-			size += log.name.length; // size of name
 		}
-
-		char* buffer = cast(char*) malloc(size);
-
-		foreach (ref log; logs)
+		else
 		{
+			// (log rows num) * (static json length * time length * duration length)
+			long start = useconds();
+			size_t size = (logs.length + 1) * (128 + 20 + 20);
+			size_t used = 0;
 
+			foreach (ref log; logs)
+			{
+				size += log.name.length + 1; // size of name
+			}
+
+			char* buffer = cast(char*) malloc(size);
+
+			foreach (ref log; logs)
+			{
+				char[100] name_buffer;
+				name_buffer[0 .. log.name.length] = log.name;
+				name_buffer[log.name.length] = 0;
+				size_t charWritten = snprintf(buffer + used, size - used,
+						`{"name":"%s", "pid":1, "tid":%lld, "ph":"X", "ts":%lld,  "dur":%lld }, %s`,
+						name_buffer.ptr, threadData.threadId + 1, log.time, log.duration, "\n".ptr);
+				used += charWritten;
+			}
+
+			long end = useconds();
 			size_t charWritten = snprintf(buffer + used, size - used,
-					`{"name":"%s", "pid":1, "tid":%lld, "ph":"X", "ts":%lld,  "dur":%lld }, %s`,
-					log.name.ptr, threadData.threadId + 1, log.time, log.duration, "\n".ptr);
+					`{"name":"logFlush", "pid":1, "tid":%lld, "ph":"X", "ts":%lld,  "dur":%lld }, %s`,
+					threadData.threadId + 1, start, end - start, "\n".ptr);
 			used += charWritten;
+			fwrite(buffer, 1, used, logFile);
 		}
-
-		long end = useconds();
-		size_t charWritten = snprintf(buffer + used, size - used,
-				`{"name":"logFlush", "pid":1, "tid":%lld, "ph":"X", "ts":%lld,  "dur":%lld }, %s`,
-				threadData.threadId + 1, start, end - start, "\n".ptr);
-		used += charWritten;
-		fwrite(buffer, 1, used, logFile);
 	}
 
 private:
@@ -861,7 +1282,7 @@ private:
 
 		foreach (i; 0 .. 1_000)
 		{
-			if (threadNum >= threadsNum)
+			if (threadNum >= atomicLoad(threadsNum))
 			{
 				threadNum = 0;
 				atomicStore(threadSelector, 0);
@@ -925,10 +1346,10 @@ private:
 	/// Flush logs
 	void onThreadFlushLogs(ThreadData* threadData)
 	{
-		scope (exit)
+		/*scope (exit)
 		{
 			threadData.lastLogIndex = -1;
-		}
+		}*/
 
 		assert(threadData);
 
@@ -938,6 +1359,8 @@ private:
 		}
 
 		onFlushLogs(threadData, threadData.logs[0 .. threadData.lastLogIndex + 1]);
+
+		threadData.lastLogIndex = -1;
 	}
 
 	/// Does nothing
@@ -985,10 +1408,13 @@ public:
 		this.name = name;
 		this.jobs = jobs;
 		this.executeOnThreadNum = executeOnThreadNum;
-		jobsToBeDoneCount = 0;
+		//jobsToBeDoneCount = 0;
+		//dependenciesWaitCount = 0;
+		atomicStore(jobsToBeDoneCount,0);
+		atomicStore(dependenciesWaitCount,0);
 	}
 
-	~this()
+	~this() nothrow
 	{
 		free(children.ptr);
 		children = null;
@@ -1028,6 +1454,7 @@ private:
 		if (spawnedByGroup)
 		{
 			auto num = atomicOp!"-="(spawnedByGroup.jobsToBeDoneCount, 1);
+			assert(num >= 0);
 			if (num == 0)
 			{
 				spawnedByGroup.onGroupFinish();
@@ -1100,7 +1527,21 @@ private void threadFunc(ThreadData* threadData)
 			if (data is null)
 			{
 				// Thread does not have own job and can not steal it, so wait for a job 
-				bool ok = threadData.semaphore.timedWait(1_000 + !acceptJobs * 10_000);
+				int tryWait = 0;
+				//bool ok = threadData.semaphore.timedWait(1_000 + !acceptJobs * 10_000);
+				bool ok = true;
+				while(!threadData.semaphore.tryWait())
+				{
+					tryWait++;
+					if(tryWait>threadPool.tryWaitCount)
+					{
+						ok = false;
+						break;
+					}
+					static foreach(i;0..10)instructionPause();
+				}
+				if(!ok)ok = threadData.semaphore.timedWait(1_000 + !acceptJobs * 10_000);
+				
 				if (ok)
 				{
 
@@ -1136,6 +1577,8 @@ private void threadFunc(ThreadData* threadData)
 		}
 
 	}
+	//threadData.end = false;
+	atomicStore(threadData.end, false);
 	assert(threadData.jobsQueue.empty());
 }
 
@@ -1143,6 +1586,7 @@ private void threadFunc(ThreadData* threadData)
 //////////////////// Test ////////////////////
 //////////////////////////////////////////////
 
+version(Test):
 void testThreadPool()
 {
 	enum jobsNum = 1024 * 4;
@@ -1191,7 +1635,7 @@ void testThreadPool()
 					startFrameJobData.del = &app.finishFrame;
 					startFrameJobData.name = "cont frm";
 					group.thPool.addJobAsynchronous(startFrameJobData); /// startFrame is the only job in thread pool no synchronization is required
-					disposeVar!(JobGroupMemory)(&this);
+
 				}
 			}
 
@@ -1353,7 +1797,7 @@ void testThreadPool()
 				(end - start) / 1000.0f, thPool.jobsDoneCount / ((end - start) / 1000.0f));
 	}
 
-	//while (1)
+	while (1)
 	{
 		// foreach (i; 1 .. 32)
 		// 	testThreadsNum(i);
