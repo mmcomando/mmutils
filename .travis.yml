@@ -1,13 +1,13 @@
 language: d
 d:
   - dmd
-  - dmd-2.075.0
+  - dmd-2.095.1
   - ldc
 
 jobs:
   include:
     - stage: build
-      script: $DMD -g -of=thread_pool src/mmutils/thread_pool.d
+      script: $DMD -g -of=thread_pool src/mmutils/thread_pool.d -version=Test
     - stage: test
       script: ./thread_pool
     - stage: deploy
