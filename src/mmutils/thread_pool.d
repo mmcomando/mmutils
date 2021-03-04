@@ -35,9 +35,8 @@ version (D_BetterC)
     extern (C) void* realloc(void*, size_t size) @nogc nothrow @system;
     extern (C) void* memcpy(return void*, scope const void*, size_t size) @nogc nothrow @system;
 
-	version(DMD){
-		extern (C) void* _d_allocmemory(size_t size) { return malloc(size); }
-	}
+	extern (C) void* _d_allocmemory(size_t size) { return malloc(size); }
+	extern (C) int __gdc_personality_v0(){ return 0; }// Stub for gdc-10 -fno-runtime
 	//hacks for LDC
 	/*extern (C) __gshared int _d_eh_personality(int, int, size_t, void*, void*)
 	{
