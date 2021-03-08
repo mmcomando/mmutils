@@ -1266,7 +1266,7 @@ private:
 	ThreadData* makeThreadData()
 	{
 		ThreadData* threadData = makeVar!ThreadData();
-		threadData.logs = makeVarArray!(JobLog)(logsCacheNum);
+		if(logsCacheNum != 0) threadData.logs = makeVarArray!(JobLog)(logsCacheNum);
 		return threadData;
 	}
 
@@ -1637,6 +1637,7 @@ void testThreadPool()
 					startFrameJobData.del = &app.finishFrame;
 					startFrameJobData.name = "cont frm";
 					group.thPool.addJobAsynchronous(startFrameJobData); /// startFrame is the only job in thread pool no synchronization is required
+					disposeVar!(JobGroupMemory)(&this);
 
 				}
 			}
