@@ -30,10 +30,10 @@ version (D_BetterC)
 {
 	version (Posix) version = MM_USE_POSIX_THREADS;
 
-    extern (C) void free(void*) @nogc nothrow @system;
-    extern (C) void* malloc(size_t size) @nogc nothrow @system;
-    extern (C) void* realloc(void*, size_t size) @nogc nothrow @system;
-    extern (C) void* memcpy(return void*, scope const void*, size_t size) @nogc nothrow @system;
+	extern (C) void free(void*) @nogc nothrow @system;
+	extern (C) void* malloc(size_t size) @nogc nothrow @system;
+	extern (C) void* realloc(void*, size_t size) @nogc nothrow @system;
+	extern (C) void* memcpy(return void*, scope const void*, size_t size) @nogc nothrow @system;
 
 	extern (C) void* _d_allocmemory(size_t size) { return malloc(size); }
 	extern (C) int __gdc_personality_v0(){ return 0; }// Stub for gdc-10 -fno-runtime
@@ -65,122 +65,122 @@ else
 
 version (ECSEmscripten)
 {
-    import std.traits;
+	import std.traits;
 
-    enum MemoryOrder
-    {
-        acq,
-        acq_rel,
-        raw,
-        rel,
-        seq
-    }
+	enum MemoryOrder
+	{
+		acq,
+		acq_rel,
+		raw,
+		rel,
+		seq
+	}
 
-    extern (C) ubyte emscripten_atomic_cas_u8(void* addr, ubyte oldVal, ubyte newVal) @nogc nothrow pure;
-    extern (C) ushort emscripten_atomic_cas_u16(void* addr, ushort oldVal, ushort newVal) @nogc nothrow pure;
-    extern (C) uint emscripten_atomic_cas_u32(void* addr, uint oldVal, uint newVal) @nogc nothrow pure;
+	extern (C) ubyte emscripten_atomic_cas_u8(void* addr, ubyte oldVal, ubyte newVal) @nogc nothrow pure;
+	extern (C) ushort emscripten_atomic_cas_u16(void* addr, ushort oldVal, ushort newVal) @nogc nothrow pure;
+	extern (C) uint emscripten_atomic_cas_u32(void* addr, uint oldVal, uint newVal) @nogc nothrow pure;
 
-    extern (C) ubyte emscripten_atomic_load_u8(const void* addr) @nogc nothrow pure;
-    extern (C) ushort emscripten_atomic_load_u16(const void* addr) @nogc nothrow pure;
-    extern (C) uint emscripten_atomic_load_u32(const void* addr) @nogc nothrow pure;
+	extern (C) ubyte emscripten_atomic_load_u8(const void* addr) @nogc nothrow pure;
+	extern (C) ushort emscripten_atomic_load_u16(const void* addr) @nogc nothrow pure;
+	extern (C) uint emscripten_atomic_load_u32(const void* addr) @nogc nothrow pure;
 
-    extern (C) ubyte emscripten_atomic_store_u8(void* addr, ubyte val) @nogc nothrow pure;
-    extern (C) ushort emscripten_atomic_store_u16(void* addr, ushort val) @nogc nothrow pure;
-    extern (C) uint emscripten_atomic_store_u32(void* addr, uint val) @nogc nothrow pure;
+	extern (C) ubyte emscripten_atomic_store_u8(void* addr, ubyte val) @nogc nothrow pure;
+	extern (C) ushort emscripten_atomic_store_u16(void* addr, ushort val) @nogc nothrow pure;
+	extern (C) uint emscripten_atomic_store_u32(void* addr, uint val) @nogc nothrow pure;
 
-    extern (C) ubyte emscripten_atomic_add_u8(void* addr, ubyte val) @nogc nothrow pure;
-    extern (C) ushort emscripten_atomic_add_u16(void* addr, ushort val) @nogc nothrow pure;
-    extern (C) uint emscripten_atomic_add_u32(void* addr, uint val) @nogc nothrow pure;
+	extern (C) ubyte emscripten_atomic_add_u8(void* addr, ubyte val) @nogc nothrow pure;
+	extern (C) ushort emscripten_atomic_add_u16(void* addr, ushort val) @nogc nothrow pure;
+	extern (C) uint emscripten_atomic_add_u32(void* addr, uint val) @nogc nothrow pure;
 
-    extern (C) ubyte emscripten_atomic_sub_u8(void* addr, ubyte val) @nogc nothrow pure;
-    extern (C) ushort emscripten_atomic_sub_u16(void* addr, ushort val) @nogc nothrow pure;
-    extern (C) uint emscripten_atomic_sub_u32(void* addr, uint val) @nogc nothrow pure;
+	extern (C) ubyte emscripten_atomic_sub_u8(void* addr, ubyte val) @nogc nothrow pure;
+	extern (C) ushort emscripten_atomic_sub_u16(void* addr, ushort val) @nogc nothrow pure;
+	extern (C) uint emscripten_atomic_sub_u32(void* addr, uint val) @nogc nothrow pure;
 
-    public pure nothrow @nogc Unqual!T atomicOp(string op, T, V1)(ref shared T val, V1 mod)
-    {
-        static if (op == "+=")
-        {
-            static if (is(T == byte) || is(T == ubyte))
-                return cast(Unqual!T)(emscripten_atomic_add_u8(cast(void*)&val,
-                        cast(Unqual!T) mod) + 1);
-            else static if (is(T == short) || is(T == ushort))
-                return cast(Unqual!T)(emscripten_atomic_add_u16(cast(void*)&val,
-                        cast(Unqual!T) mod) + 1);
-            else static if (is(T == int) || is(T == uint))
-                return cast(Unqual!T)(emscripten_atomic_add_u32(cast(void*)&val,
-                        cast(Unqual!T) mod) + 1);
-            else
-                static assert(0);
-        }
-        else static if (op == "-=")
-        {
-            static if (is(T == byte) || is(T == ubyte))
-                return cast(Unqual!T)(emscripten_atomic_sub_u8(cast(void*)&val,
-                        cast(Unqual!T) mod) - 1);
-            else static if (is(T == short) || is(T == ushort))
-                return cast(Unqual!T)(emscripten_atomic_sub_u16(cast(void*)&val,
-                        cast(Unqual!T) mod) - 1);
-            else static if (is(T == int) || is(T == uint))
-                return cast(Unqual!T)(emscripten_atomic_sub_u32(cast(void*)&val,
-                        cast(Unqual!T) mod) - 1);
-            else
-                static assert(0);
-        }
-    }
+	public pure nothrow @nogc Unqual!T atomicOp(string op, T, V1)(ref shared T val, V1 mod)
+	{
+		static if (op == "+=")
+		{
+			static if (is(T == byte) || is(T == ubyte))
+				return cast(Unqual!T)(emscripten_atomic_add_u8(cast(void*)&val,
+						cast(Unqual!T) mod) + 1);
+			else static if (is(T == short) || is(T == ushort))
+				return cast(Unqual!T)(emscripten_atomic_add_u16(cast(void*)&val,
+						cast(Unqual!T) mod) + 1);
+			else static if (is(T == int) || is(T == uint))
+				return cast(Unqual!T)(emscripten_atomic_add_u32(cast(void*)&val,
+						cast(Unqual!T) mod) + 1);
+			else
+				static assert(0);
+		}
+		else static if (op == "-=")
+		{
+			static if (is(T == byte) || is(T == ubyte))
+				return cast(Unqual!T)(emscripten_atomic_sub_u8(cast(void*)&val,
+						cast(Unqual!T) mod) - 1);
+			else static if (is(T == short) || is(T == ushort))
+				return cast(Unqual!T)(emscripten_atomic_sub_u16(cast(void*)&val,
+						cast(Unqual!T) mod) - 1);
+			else static if (is(T == int) || is(T == uint))
+				return cast(Unqual!T)(emscripten_atomic_sub_u32(cast(void*)&val,
+						cast(Unqual!T) mod) - 1);
+			else
+				static assert(0);
+		}
+	}
 
-    public pure nothrow @nogc @trusted void atomicStore(MemoryOrder ms = MemoryOrder.seq, T, V)(ref T val,
-            V newval)
-    {
-        alias UT = Unqual!T;
-        static if (is(UT == bool) || is(UT == byte) || is(UT == ubyte))
-            emscripten_atomic_store_u8(cast(void*)&val, cast(UT) newval);
-        else static if (is(UT == short) || is(UT == ushort))
-            emscripten_atomic_store_u16(cast(void*)&val, cast(UT) newval);
-        else static if (is(UT == int) || is(UT == uint))
-            emscripten_atomic_store_u32(cast(void*)&val, cast(UT) newval);
-        else
-            static assert(0);
-    }
+	public pure nothrow @nogc @trusted void atomicStore(MemoryOrder ms = MemoryOrder.seq, T, V)(ref T val,
+			V newval)
+	{
+		alias UT = Unqual!T;
+		static if (is(UT == bool) || is(UT == byte) || is(UT == ubyte))
+			emscripten_atomic_store_u8(cast(void*)&val, cast(UT) newval);
+		else static if (is(UT == short) || is(UT == ushort))
+			emscripten_atomic_store_u16(cast(void*)&val, cast(UT) newval);
+		else static if (is(UT == int) || is(UT == uint))
+			emscripten_atomic_store_u32(cast(void*)&val, cast(UT) newval);
+		else
+			static assert(0);
+	}
 
-    public pure nothrow @nogc @trusted T atomicLoad(MemoryOrder ms = MemoryOrder.seq, T)(
-            ref const T val)
-    {
-        alias UT = Unqual!T;
-        static if (is(UT == bool))
-            return emscripten_atomic_load_u8(cast(const void*)&val) != 0;
-        else static if (is(UT == byte) || is(UT == ubyte))
-            return emscripten_atomic_load_u8(cast(const void*)&val);
-        else static if (is(UT == short) || is(UT == ushort))
-            return emscripten_atomic_load_u16(cast(const void*)&val);
-        else static if (is(UT == int) || is(UT == uint))
-            return emscripten_atomic_load_u32(cast(const void*)&val);
-        else
-            static assert(0);
-    }
+	public pure nothrow @nogc @trusted T atomicLoad(MemoryOrder ms = MemoryOrder.seq, T)(
+			ref const T val)
+	{
+		alias UT = Unqual!T;
+		static if (is(UT == bool))
+			return emscripten_atomic_load_u8(cast(const void*)&val) != 0;
+		else static if (is(UT == byte) || is(UT == ubyte))
+			return emscripten_atomic_load_u8(cast(const void*)&val);
+		else static if (is(UT == short) || is(UT == ushort))
+			return emscripten_atomic_load_u16(cast(const void*)&val);
+		else static if (is(UT == int) || is(UT == uint))
+			return emscripten_atomic_load_u32(cast(const void*)&val);
+		else
+			static assert(0);
+	}
 
-    public pure nothrow @nogc @trusted bool cas(MemoryOrder succ = MemoryOrder.seq,
-            MemoryOrder fail = MemoryOrder.seq, T, V1, V2)(T* here, V1 ifThis, V2 writeThis)
-    {
-        alias UT = Unqual!T;
-        static if (is(UT == bool))
-            return emscripten_atomic_cas_u8(cast(void*) here,
-                    cast(Unqual!T) ifThis, cast(Unqual!T) writeThis) == ifThis;
-        else static if (is(UT == byte) || is(UT == ubyte))
-            return emscripten_atomic_cas_u8(cast(void*) here,
-                    cast(Unqual!T) ifThis, cast(Unqual!T) writeThis) == ifThis;
-        else static if (is(UT == short) || is(UT == ushort))
-            return emscripten_atomic_cas_u16(cast(void*) here,
-                    cast(Unqual!T) ifThis, cast(Unqual!T) writeThis) == ifThis;
-        else static if (is(UT == int) || is(UT == uint))
-            return emscripten_atomic_cas_u32(cast(void*) here,
-                    cast(Unqual!T) ifThis, cast(Unqual!T) writeThis) == ifThis;
-        else
-            static assert(0);
-    }
+	public pure nothrow @nogc @trusted bool cas(MemoryOrder succ = MemoryOrder.seq,
+			MemoryOrder fail = MemoryOrder.seq, T, V1, V2)(T* here, V1 ifThis, V2 writeThis)
+	{
+		alias UT = Unqual!T;
+		static if (is(UT == bool))
+			return emscripten_atomic_cas_u8(cast(void*) here,
+					cast(Unqual!T) ifThis, cast(Unqual!T) writeThis) == ifThis;
+		else static if (is(UT == byte) || is(UT == ubyte))
+			return emscripten_atomic_cas_u8(cast(void*) here,
+					cast(Unqual!T) ifThis, cast(Unqual!T) writeThis) == ifThis;
+		else static if (is(UT == short) || is(UT == ushort))
+			return emscripten_atomic_cas_u16(cast(void*) here,
+					cast(Unqual!T) ifThis, cast(Unqual!T) writeThis) == ifThis;
+		else static if (is(UT == int) || is(UT == uint))
+			return emscripten_atomic_cas_u32(cast(void*) here,
+					cast(Unqual!T) ifThis, cast(Unqual!T) writeThis) == ifThis;
+		else
+			static assert(0);
+	}
 }
 else
 {
-    public import core.atomic;
+	public import core.atomic;
 }
 
 //////////////////////////////////////////////////
@@ -234,7 +234,7 @@ version (WebAssembly)
 	struct timespec
 	{
 		time_t  tv_sec;
-		int     tv_nsec;
+		int	 tv_nsec;
 	}
 
 	extern(C) int clock_gettime(clockid_t, timespec*) @nogc nothrow @system;
@@ -529,8 +529,8 @@ else version(D_BetterC)
 			void initialize()
 			{
 				handle = CreateSemaphoreA( null, 0, int.max, null );
-            	assert ( handle != handle.init );
-                //throw new SyncError( "Unable to create semaphore" );
+				assert ( handle != handle.init );
+				//throw new SyncError( "Unable to create semaphore" );
 			}
 
 			void wait()
@@ -583,7 +583,7 @@ else version(D_BetterC)
 			void destroy()
 			{
 				BOOL rc = CloseHandle( handle );
-            	assert( rc, "Unable to destroy semaphore" );
+				assert( rc, "Unable to destroy semaphore" );
 			}
 		}
 
@@ -883,7 +883,7 @@ public:
 		else version(Posix)
 		{
 			import core.sys.posix.unistd;
-    		return cast(int)sysconf(_SC_NPROCESSORS_ONLN);
+			return cast(int)sysconf(_SC_NPROCESSORS_ONLN);
 		}
 		else return -1;
 	}
