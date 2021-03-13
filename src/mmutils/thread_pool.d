@@ -5,67 +5,28 @@ module mmutils.thread_pool;
 
 import std.algorithm : map;
 
-version = MM_NO_LOGS; // Disable log creation
-//version = MM_USE_POSIX_THREADS; // Use posix threads insted of standard library, required for betterC
+
+version = MM_NO_LOGS; // Disable log creation, logs are useful for debugging
+
 
 version (WebAssembly)
 {
+	version (LDC){} else { static assert("Currently only LDC supports WASM"); }
+
 	version = MM_NO_LOGS;
-	version = MM_USE_POSIX_THREADS;
-	extern(C) struct FILE
+	version = MM_USE_POSIX_THREADS;// Emscripten uses POSIX threads
+
+	extern(C) struct FILE;
+	extern(C) int printf(scope const char* format, scope const ...);
+	extern(C) void exit(int);
+	extern(C) void __assert (const char *msg, const char *file, int line)
 	{
-		
-	}
-}
-else 
-{
-	import core.stdc.stdio;
-}
-
-//////////////////////////////////////////////
-/////////////// BetterC Support //////////////
-//////////////////////////////////////////////
-
-version (D_BetterC)
-{
-	version (Posix) version = MM_USE_POSIX_THREADS;
-
-	extern (C) void free(void*) @nogc nothrow @system;
-	extern (C) void* malloc(size_t size) @nogc nothrow @system;
-	extern (C) void* realloc(void*, size_t size) @nogc nothrow @system;
-	extern (C) void* memcpy(return void*, scope const void*, size_t size) @nogc nothrow @system;
-
-	extern (C) void* _d_allocmemory(size_t size) { return malloc(size); }
-	extern (C) int __gdc_personality_v0(){ return 0; }// Stub for gdc-10 -fno-runtime
-	//hacks for LDC
-	/*extern (C) __gshared int _d_eh_personality(int, int, size_t, void*, void*)
-	{
-		return 0;
+		printf("Assert (%s:%d), message(%s)\n", file, line, msg);
+		exit(-6);
 	}
 
-	extern (C) __gshared void _d_eh_resume_unwind(void*)
-	{
-		return;
-	}
-
-	extern (C) void* _d_allocmemory(size_t sz)
-	{
-		return malloc(sz);
-	}*/
-}
-else
-{
-	import core.stdc.stdlib;
-	import core.stdc.string;
-}
-
-//////////////////////////////////////////////
-/////////////// Atomics //////////////////////
-//////////////////////////////////////////////
-
-version (ECSEmscripten)
-{
-	import std.traits;
+	// Currently threads/atomics support is experimental (not yet standarized) so LDC doesn't support atomic operations for WASM
+	// Emscripten has support for experimental atmoics so use it
 
 	enum MemoryOrder
 	{
@@ -95,6 +56,9 @@ version (ECSEmscripten)
 	extern (C) ubyte emscripten_atomic_sub_u8(void* addr, ubyte val) @nogc nothrow pure;
 	extern (C) ushort emscripten_atomic_sub_u16(void* addr, ushort val) @nogc nothrow pure;
 	extern (C) uint emscripten_atomic_sub_u32(void* addr, uint val) @nogc nothrow pure;
+
+
+	import std.traits;
 
 	public pure nothrow @nogc Unqual!T atomicOp(string op, T, V1)(ref shared T val, V1 mod)
 	{
@@ -178,9 +142,47 @@ version (ECSEmscripten)
 			static assert(0);
 	}
 }
+else 
+{
+	import core.atomic;
+	import core.stdc.stdio;
+	import core.stdc.stdlib : exit;
+}
+
+//////////////////////////////////////////////
+/////////////// BetterC Support //////////////
+//////////////////////////////////////////////
+
+version (D_BetterC)
+{
+	version (Posix) version = MM_USE_POSIX_THREADS;
+
+	extern (C) void free(void*) @nogc nothrow @system;
+	extern (C) void* malloc(size_t size) @nogc nothrow @system;
+	extern (C) void* realloc(void*, size_t size) @nogc nothrow @system;
+	extern (C) void* memcpy(return void*, scope const void*, size_t size) @nogc nothrow @system;
+
+	extern (C) void* _d_allocmemory(size_t size) { return malloc(size); } // Required for LDC WASM build
+	//hacks for LDC
+	/*extern (C) __gshared int _d_eh_personality(int, int, size_t, void*, void*)
+	{
+		return 0;
+	}
+
+	extern (C) __gshared void _d_eh_resume_unwind(void*)
+	{
+		return;
+	}
+
+	extern (C) void* _d_allocmemory(size_t sz)
+	{
+		return malloc(sz);
+	}*/
+}
 else
 {
-	public import core.atomic;
+	import core.stdc.stdlib;
+	import core.stdc.string;
 }
 
 //////////////////////////////////////////////////
@@ -212,13 +214,25 @@ T[] makeVarArray(T)(int num, T init = T.init)
 	return arr;
 }
 
+private void destroy(S)(ref S s)
+    if (is(S == struct))
+{
+    static if (__traits(hasMember, S, "__xdtor") && __traits(isSame, S, __traits(parent, s.__xdtor)))
+        s.__xdtor();
+}
+
 void disposeVar(T)(T* var)
 {
+	destroy(*var);
 	free(var);
 }
 
 void disposeArray(T)(T[] var)
 {
+	foreach(ref T v; var)
+	{
+		destroy(v);
+	}
 	free(var.ptr);
 }
 //////////////////////////////////////////////
@@ -1589,6 +1603,7 @@ private void threadFunc(ThreadData* threadData)
 //////////////////////////////////////////////
 
 version(Test):
+
 void testThreadPool()
 {
 	enum jobsNum = 1024 * 4;
@@ -1800,26 +1815,28 @@ void testThreadPool()
 				(end - start) / 1000.0f, thPool.jobsDoneCount / ((end - start) / 1000.0f));
 	}
 
-	while (1)
+	// while (1)
 	{
 		// foreach (i; 1 .. 32)
 		// 	testThreadsNum(i);
 
 		testThreadsNum(1);
-		testThreadsNum(4);
-		testThreadsNum(16);
+		// testThreadsNum(4);
+		// testThreadsNum(16);
 	}
 	thPool.flushAllLogs();
 	thPool.waitThreads();
 	thPool.unregistExternalThread(mainThread);
 }
 
+
 version (D_BetterC)
 {
-
 	extern (C) int main(int argc, char*[] argv) // for betterC
 	{
 		testThreadPool();
+		// Call exit directly so emscripten emrun will detect return code and finish tests, meson sometimes locks after test finish, not sure why
+		exit(0);
 		return 0;
 	}
 }

@@ -1,0 +1,2 @@
+option('runtime', type: 'boolean', value: true)
+option('sanitize', type: 'string', value: '') # Meson doesn't support b_sanitize for ldc even though ldc supports it, so add it manually
