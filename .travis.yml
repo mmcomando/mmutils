@@ -1,7 +1,7 @@
 language: d
 d:
   - dmd-2.099.1
-  - ldc-1.29.0
+  # - ldc-1.29.0
 
 jobs:
   include:
