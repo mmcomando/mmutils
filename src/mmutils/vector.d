@@ -86,6 +86,10 @@ public:
 		used = 0;
 	}
 
+	T* ptr() {
+		return array.ptr;
+	}
+
 	void reserve(size_t numElements) {
 		if (numElements > array.length) {
 			extend(numElements);
@@ -103,7 +107,7 @@ public:
 		}
 	}
 
-	@nogc void freeData(void[] data) {
+	@nogc static void freeData(void[] data) {
 		// 0x0F probably invalid value for pointers and other types
 		memset(data.ptr, 0x0F, data.length); // Makes bugs show up xD 
 		free(data.ptr);
@@ -122,6 +126,7 @@ public:
 		array = memory[0 .. newNumOfElements];
 		return cast(void[]) oldArray;
 	}
+
 
 	Vector!T copy()() {
 		Vector!T duplicate;
