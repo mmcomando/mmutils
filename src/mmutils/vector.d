@@ -12,8 +12,10 @@ import std.traits : hasMember, isCopyable, TemplateOf, Unqual;
 	return 1 << bsr(num) + 1;
 }
 
+debug {
 __gshared size_t gVectorsCreated = 0;
 __gshared size_t gVectorsDestroyed = 0;
+}
 
 struct Vector(T) {
 	T[] array;
@@ -30,7 +32,7 @@ public:
 	}
 
 	static if (isCopyable!T) {
-		this(this) {
+		this(this) @nogc nothrow {
 			T[] tmp = array[0 .. used];
 			array = null;
 			used = 0;
@@ -54,7 +56,7 @@ public:
 				destroy(el);
 			}
 			freeData(cast(void[]) array);
-			gVectorsDestroyed++;
+			debug gVectorsDestroyed++;
 		}
 		array = null;
 		used = 0;
@@ -116,8 +118,7 @@ public:
 	static void[] manualExtend(ref T[] array, size_t newNumOfElements = 0) {
 		if (newNumOfElements == 0)
 			newNumOfElements = 2;
-		if (array.length == 0)
-			gVectorsCreated++;
+		debug if (array.length == 0) gVectorsCreated++;
 		T[] oldArray = array;
 		size_t oldSize = oldArray.length * T.sizeof;
 		size_t newSize = newNumOfElements * T.sizeof;
@@ -249,17 +250,18 @@ public:
 		return hashOf(cast(Unqual!(T)[]) array.ptr[0 .. used]);
 	}
 
-	import std.format : FormatSpec, formatValue;
 
+	version(D_BetterC) {} else {
+	import std.format : FormatSpec, formatValue;
 	/**
-	 * Preety print
-	 */
+	* Pretty print
+	*/
 	void toString(scope void delegate(const(char)[]) sink, FormatSpec!char fmt) {
 		static if (__traits(compiles, formatValue(sink, array[0 .. used], fmt))) {
 			formatValue(sink, array[0 .. used], fmt);
 		}
 	}
-
+	}
 }
 
 // Helper to avoid GC
@@ -316,9 +318,13 @@ private T[n] s(T, size_t n)(auto ref T[n] array) pure nothrow @nogc @safe {
 	vec.length = 2;
 	assert(vec[] == [0, 1].s);
 }
+
+///////////////////////////////////////////
+////////////// TESTS //////////////////////
 ///////////////////////////////////////////
 
-enum string checkVectorAllocations = `
+unittest {
+	enum string checkVectorAllocations = `
 //assert(gVectorsCreated==gVectorsDestroyed);
 gVectorsCreated=gVectorsDestroyed=0;
 scope(exit){if(gVectorsCreated!=gVectorsDestroyed){	
@@ -327,8 +333,6 @@ scope(exit){if(gVectorsCreated!=gVectorsDestroyed){
 	assert(gVectorsCreated==gVectorsDestroyed, "Vector memory leak");
 }}
 `;
-
-unittest {
 	mixin(checkVectorAllocations);
 	Vector!int vecA = Vector!int([0, 1, 2, 3, 4, 5].s);
 	assert(vecA[] == [0, 1, 2, 3, 4, 5].s);
