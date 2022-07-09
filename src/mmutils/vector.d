@@ -1,14 +1,16 @@
 module mmutils.vector;
 
 import core.bitop;
-import core.stdc.stdlib : free, malloc;
 import core.stdc.string : memcpy, memset;
 import std.algorithm : swap;
 import std.conv : emplace;
 import std.traits : hasMember, isCopyable, TemplateOf, Unqual;
 
+// D stdc bindings don't play well with wasm target
+private extern(C) @nogc @safe nothrow void* malloc(size_t);
+private extern(C) @nogc @safe nothrow void free(void*);
 
-@nogc @safe nothrow pure size_t nextPow2(size_t num) {
+private @nogc @safe nothrow pure size_t nextPow2(size_t num) {
 	return 1 << bsr(num) + 1;
 }
 
